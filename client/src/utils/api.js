@@ -7,17 +7,24 @@ function getDeviceId() {
   return id
 }
 
+function isFormData(body) {
+  return body && typeof body === 'object' && body.constructor && body.constructor.name === 'FormData'
+}
+
 async function request(path, options = {}) {
+  const isForm = isFormData(options.body)
   const headers = {
-    'Content-Type': 'application/json',
     'X-Device-Id': getDeviceId(),
     ...options.headers
+  }
+  // 非 FormData 请求才设置 JSON Content-Type
+  if (!isForm) {
+    headers['Content-Type'] = 'application/json'
   }
 
   const res = await fetch(path, { ...options, headers })
   const json = await res.json()
 
-  // 如果服务端返回了新的设备ID
   const newId = res.headers.get('X-Device-Id')
   if (newId) localStorage.setItem('device_id', newId)
 
@@ -91,5 +98,69 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data)
     })
+  },
+
+  // 提醒
+  getReminders() {
+    return request('/api/reminders')
+  },
+  getReminderCount() {
+    return request('/api/reminders/count')
+  },
+  markReminderRead(id) {
+    return request(`/api/reminders/${id}/read`, { method: 'PUT' })
+  },
+  markAllRead() {
+    return request('/api/reminders/read-all', { method: 'PUT' })
+  },
+
+  // 反馈（支持 FormData 传递截图）
+  submitFeedback(formData) {
+    return request('/api/feedback', {
+      method: 'POST',
+      body: formData
+    })
+  },
+  getFeedback(params = {}) {
+    const qs = new URLSearchParams(params).toString()
+    return request(`/api/feedback?${qs}`)
+  },
+  getFeedbackStatus(id) {
+    return request(`/api/feedback/status/${id}`)
+  },
+  checkSurvey() {
+    return request('/api/feedback/survey')
+  },
+  submitSurvey(rating, comment) {
+    return request('/api/feedback/survey', {
+      method: 'POST',
+      body: JSON.stringify({ rating, comment })
+    })
+  },
+
+  // 识图上传
+  async uploadReceipt(file) {
+    const formData = new FormData()
+    formData.append('image', file)
+    const res = await fetch('/api/vision', {
+      method: 'POST',
+      headers: { 'X-Device-Id': getDeviceId() },
+      body: formData
+    })
+    return res.json()
+  },
+
+  // 汇率
+  getExchangeRates() {
+    return request('/api/exchange/latest')
+  },
+  getExchangeDetail(currency) {
+    return request(`/api/exchange/detail/${currency}`)
+  },
+  getExchangeAlerts() {
+    return request('/api/exchange/alerts')
+  },
+  getExchangeWeekly() {
+    return request('/api/exchange/weekly')
   }
 }

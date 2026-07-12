@@ -30,6 +30,8 @@
           ref="inputEl"
           :disabled="store.loading"
         ></textarea>
+        <button class="btn-upload" @click="triggerUpload()" :disabled="store.loading" title="拍照识别购物小票">📷</button>
+        <input type="file" ref="fileInput" accept="image/*" capture="environment" style="display:none" @change="onFileChange" />
         <button @click="send()" :disabled="!input.trim() || store.loading">↑</button>
       </div>
       <div class="quick-actions">
@@ -37,6 +39,7 @@
         <span class="quick-action" @click="send('这个月花了多少钱')">📊 本月</span>
         <span class="quick-action" @click="send('有什么省钱建议吗')">💡 建议</span>
         <span class="quick-action" @click="send('我想存钱买一个新手机')">🎯 设目标</span>
+        <span class="quick-action highlight" @click="triggerUpload()">📷 扫小票</span>
       </div>
     </div>
   </div>
@@ -51,6 +54,7 @@ const store = useAppStore()
 const input = ref('')
 const messagesEl = ref(null)
 const inputEl = ref(null)
+const fileInput = ref(null)
 
 async function send(text) {
   const msg = text || input.value.trim()
@@ -58,10 +62,28 @@ async function send(text) {
   input.value = ''
 
   await store.sendMessage(msg)
-  await nextTick()
-  if (messagesEl.value) {
-    messagesEl.value.scrollTop = messagesEl.value.scrollHeight
-  }
+  scrollToBottom()
+}
+
+function triggerUpload() {
+  fileInput.value?.click()
+}
+
+async function onFileChange(e) {
+  const file = e.target.files[0]
+  if (!file) return
+  await store.uploadImage(file)
+  scrollToBottom()
+  // 重置 input 以便可以选择同一文件
+  e.target.value = ''
+}
+
+function scrollToBottom() {
+  nextTick(() => {
+    if (messagesEl.value) {
+      messagesEl.value.scrollTop = messagesEl.value.scrollHeight
+    }
+  })
 }
 
 onMounted(() => {

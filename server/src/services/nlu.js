@@ -1,12 +1,15 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { getMemoryContext } from './memory.js'
 import { getContextData } from './analyzer.js'
+import { getExchangeContext, getLatestRates, getRateAdvice } from './exchangeRate.js'
 
-const HAS_API_KEY = process.env.ANTHROPIC_API_KEY && process.env.ANTHROPIC_API_KEY !== 'your-api-key-here'
-
-const anthropic = HAS_API_KEY ? new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY
-}) : null
+function getAnthropicClient() {
+  const key = process.env.ANTHROPIC_API_KEY
+  if (key && key !== 'your-api-key-here') {
+    return new Anthropic({ apiKey: key })
+  }
+  return null
+}
 
 const SYSTEM_PROMPT = `你是一个智能个人财务记账助手，名叫"小财"。你的职责是帮助用户通过自然语言记账、查询消费、提供理财建议。
 
@@ -107,7 +110,7 @@ function localParse(deviceId, userMessage) {
 
   // 检测意图
   const queryWords = ['多少', '花了多少钱', '统计', '分析', '报告', '汇总', '消费结构', '趋势', '占比', '分类']
-  const adviceWords = ['建议', '省钱', '规划', '理财', '怎么', '如何', '推荐', '帮助']
+  const adviceWords = ['建议', '省钱', '规划', '理财', '怎么', '如何', '推荐', '帮助', '汇率', '换汇', '美元', '欧元', '日元', '出国', '旅游', '海淘']
   const goalWords = ['目标', '存钱', '储蓄', '计划', '想买', '攒钱']
 
   const isQuery = queryWords.some(w => text.includes(w))
@@ -163,6 +166,23 @@ function localParse(deviceId, userMessage) {
     if (contextData.anomalies.length > 0) {
       advice += `• ⚠️ ${contextData.anomalies[0].category}消费环比增长较多，注意控制哦~\n`
     }
+
+    // 如果问汇率相关问题，附带汇率数据
+    if (text.includes('汇率') || text.includes('换汇') || text.includes('美元') || text.includes('欧元') || text.includes('日元') || text.includes('出国') || text.includes('海淘')) {
+      try {
+        const rates = getLatestRates()
+        advice += '\n🌍 当前汇率（CNY）：\n'
+        const curLabels = { USD: '美元', EUR: '欧元', JPY: '日元', GBP: '英镑', HKD: '港币', KRW: '韩元' }
+        for (const [cur, data] of Object.entries(rates)) {
+          advice += `• ${curLabels[cur] || cur}: ${data.rate.toFixed(4)}\n`
+        }
+        const usdAdvice = getRateAdvice('USD')
+        const jpyAdvice = getRateAdvice('JPY')
+        if (usdAdvice) advice += `\n💡 ${usdAdvice.advice}\n`
+        if (jpyAdvice) advice += `💡 ${jpyAdvice.advice}\n`
+      } catch {}
+    }
+
     return { intent: 'advice', message: advice, data: null }
   }
 
@@ -223,7 +243,8 @@ function localParse(deviceId, userMessage) {
 
 export async function processMessage(deviceId, userMessage) {
   // 如果没有配置 API Key，使用本地规则引擎
-  if (!HAS_API_KEY) {
+  const anthropic = getAnthropicClient()
+  if (!anthropic) {
     return localParse(deviceId, userMessage)
   }
 
@@ -262,20 +283,29 @@ ${contextData.anomalies.map(a =>
 ).join('\n') || '无异常'}
 `
 
+  // 注入汇率上下文
+  let exchangeText = ''
+  try {
+    const { getExchangeContext } = await import('./exchangeRate.js')
+    exchangeText = '\n' + getExchangeContext()
+  } catch {}
+
   const today = new Date().toISOString().slice(0, 10)
 
   try {
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 1024,
-      system: SYSTEM_PROMPT + memoryText + dataText,
+      thinking: { type: 'disabled' },
+      system: SYSTEM_PROMPT + memoryText + dataText + exchangeText,
       messages: [{
         role: 'user',
         content: `今天的日期是${today}。\n用户说: "${userMessage}"\n\n请分析用户意图并返回JSON响应。`
       }]
     })
 
-    const text = response.content[0].text
+    const textBlock = response.content.find(b => b.type === 'text')
+    const text = textBlock ? textBlock.text : (response.content[0].text || '')
     const jsonMatch = text.match(/\{[\s\S]*\}/)
     if (!jsonMatch) {
       return { intent: 'chat', message: '抱歉，我没太理解你的意思，可以换个说法试试吗？😊', data: null }

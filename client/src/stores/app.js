@@ -7,7 +7,10 @@ export const useAppStore = defineStore('app', {
     todayExpense: 0,
     monthlyStats: null,
     loading: false,
-    sidebarOpen: true
+    sidebarOpen: true,
+    reminderCount: 0,
+    reminders: [],
+    showReminderPanel: false
   }),
 
   actions: {
@@ -27,7 +30,6 @@ export const useAppStore = defineStore('app', {
           time: new Date()
         })
 
-        // 如果是记账，刷新今日汇总
         if (data.intent === 'record') {
           await this.refreshToday()
         }
@@ -37,6 +39,47 @@ export const useAppStore = defineStore('app', {
         this.messages.push({
           role: 'assistant',
           content: '抱歉，网络出了点问题，请稍后再试 😅',
+          intent: 'chat',
+          time: new Date()
+        })
+      } finally {
+        this.loading = false
+      }
+    },
+
+    async uploadImage(file) {
+      this.messages.push({ role: 'user', content: '📷 上传了一张购物小票...', time: new Date(), isImage: true })
+      this.loading = true
+
+      try {
+        const res = await api.uploadReceipt(file)
+        if (res.success && res.data.records.length > 0) {
+          const data = res.data
+          const recordLines = data.records.map(r =>
+            `${r.category} ¥${r.amount.toFixed(2)} (${r.description})`
+          ).join('\n')
+
+          this.messages.push({
+            role: 'assistant',
+            content: `📷 ${data.summary}\n\n识别到 ${data.count} 条消费记录：\n${recordLines}\n\n总计：¥${data.totalAmount.toFixed(2)}，已自动记账~`,
+            intent: 'record',
+            time: new Date()
+          })
+
+          await this.refreshToday()
+          await this.refreshMonthly()
+        } else {
+          this.messages.push({
+            role: 'assistant',
+            content: res.data.summary || '未能识别图片中的消费信息，请确认图片清晰可见或手动输入。',
+            intent: 'chat',
+            time: new Date()
+          })
+        }
+      } catch {
+        this.messages.push({
+          role: 'assistant',
+          content: '图片上传失败，请检查网络后重试 😅',
           intent: 'chat',
           time: new Date()
         })
@@ -61,8 +104,30 @@ export const useAppStore = defineStore('app', {
       } catch { return null }
     },
 
+    async refreshReminders() {
+      try {
+        const [cntRes, listRes] = await Promise.all([
+          api.getReminderCount(),
+          api.getReminders()
+        ])
+        this.reminderCount = cntRes.data
+        this.reminders = listRes.data || []
+      } catch { /* ignore */ }
+    },
+
+    async markAllRead() {
+      await api.markAllRead()
+      this.reminderCount = 0
+      this.reminders = []
+    },
+
     toggleSidebar() {
       this.sidebarOpen = !this.sidebarOpen
+    },
+
+    toggleReminderPanel() {
+      this.showReminderPanel = !this.showReminderPanel
+      if (this.showReminderPanel) this.refreshReminders()
     }
   }
 })

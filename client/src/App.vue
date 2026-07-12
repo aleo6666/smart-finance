@@ -15,6 +15,9 @@
       <router-link to="/goals" active-class="active">
         <span class="icon">🎯</span> 目标规划
       </router-link>
+      <router-link to="/exchange" active-class="active">
+        <span class="icon">🌍</span> 汇率看板
+      </router-link>
     </nav>
 
     <div class="today-card">
@@ -30,26 +33,55 @@
     <div class="topbar">
       <button class="menu-btn" @click="store.toggleSidebar()">☰</button>
       <span class="page-title">{{ pageTitle }}</span>
+      <div style="flex:1"></div>
+      <div class="reminder-bell" @click="store.toggleReminderPanel()">
+        <span style="font-size:20px">🔔</span>
+        <span v-if="store.reminderCount > 0" class="badge">{{ store.reminderCount > 99 ? '99+' : store.reminderCount }}</span>
+      </div>
+
+      <!-- 提醒下拉面板 -->
+      <div class="reminder-panel" v-if="store.showReminderPanel" @click.stop>
+        <div class="reminder-panel-header">
+          <h4>📬 消息提醒</h4>
+          <button class="btn btn-outline btn-sm" @click="store.markAllRead()" v-if="store.reminders.length > 0">全部已读</button>
+        </div>
+        <div v-if="store.reminders.length === 0" style="padding:20px;text-align:center;color:var(--text-secondary);font-size:14px;">
+          暂无新提醒 ✨
+        </div>
+        <div v-for="r in store.reminders" :key="r.id" class="reminder-item" :class="r.type">
+          <div class="reminder-title">{{ r.title }}</div>
+          <div class="reminder-msg">{{ r.message }}</div>
+          <div class="reminder-time">{{ r.created_at }}</div>
+        </div>
+      </div>
     </div>
     <router-view />
   </div>
+
+  <!-- 点击遮罩关闭面板 -->
+  <div v-if="store.showReminderPanel" class="panel-mask" @click="store.showReminderPanel = false"></div>
+
+  <!-- 用户反馈闭环 -->
+  <FeedbackModal />
 </template>
 
 <script setup>
 import { computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAppStore } from './stores/app.js'
+import FeedbackModal from './components/FeedbackModal.vue'
 
 const store = useAppStore()
 const route = useRoute()
 
 const pageTitle = computed(() => {
-  const titles = { chat: '智能记账', reports: '消费分析', goals: '目标规划' }
+  const titles = { chat: '智能记账', reports: '消费分析', goals: '目标规划', exchange: '汇率看板' }
   return titles[route.name] || '智能记账'
 })
 
 onMounted(() => {
   store.refreshToday()
   store.refreshMonthly()
+  store.refreshReminders()
 })
 </script>

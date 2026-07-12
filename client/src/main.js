@@ -7,7 +7,8 @@ import './style.css'
 const routes = [
   { path: '/', name: 'chat', component: () => import('./components/ChatWindow.vue') },
   { path: '/reports', name: 'reports', component: () => import('./components/ReportPanel.vue') },
-  { path: '/goals', name: 'goals', component: () => import('./components/GoalTracker.vue') }
+  { path: '/goals', name: 'goals', component: () => import('./components/GoalTracker.vue') },
+  { path: '/exchange', name: 'exchange', component: () => import('./components/ExchangePanel.vue') }
 ]
 
 const router = createRouter({
