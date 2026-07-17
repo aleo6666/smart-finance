@@ -135,11 +135,15 @@ export const api = {
   },
 
   // 提醒
-  getReminders() {
-    return request('/api/reminders')
+  getReminders(params = {}) {
+    const qs = new URLSearchParams(params).toString()
+    return request(`/api/reminders${qs ? `?${qs}` : ''}`)
   },
   getReminderCount() {
     return request('/api/reminders/count')
+  },
+  getReminderHighlights(limit = 3) {
+    return request(`/api/reminders/highlights?limit=${limit}`)
   },
   markReminderRead(id) {
     return request(`/api/reminders/${id}/read`, { method: 'PUT' })

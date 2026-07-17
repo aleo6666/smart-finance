@@ -10,6 +10,7 @@ export const useAppStore = defineStore('app', {
     sidebarOpen: true,
     reminderCount: 0,
     reminders: [],
+    reminderHighlights: [],
     showReminderPanel: false
   }),
 
@@ -115,10 +116,28 @@ export const useAppStore = defineStore('app', {
       } catch { /* ignore */ }
     },
 
+    async refreshReminderHighlights(limit = 3) {
+      try {
+        const res = await api.getReminderHighlights(limit)
+        this.reminderHighlights = res.data || []
+      } catch {
+        this.reminderHighlights = []
+      }
+    },
+
+    async markReminderRead(id) {
+      await api.markReminderRead(id)
+      this.reminders = this.reminders.filter(item => item.id !== id)
+      this.reminderHighlights = this.reminderHighlights.filter(item => item.id !== id)
+      await this.refreshReminders()
+      await this.refreshReminderHighlights()
+    },
+
     async markAllRead() {
       await api.markAllRead()
       this.reminderCount = 0
       this.reminders = []
+      this.reminderHighlights = []
     },
 
     toggleSidebar() {
