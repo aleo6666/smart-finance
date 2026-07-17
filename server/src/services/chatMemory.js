@@ -1,23 +1,28 @@
 function formatMonth(date) {
-  return date.toISOString().slice(0, 7)
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  return `${year}-${month}`
 }
 
 function previousMonth(date) {
-  const d = new Date(date)
-  d.setMonth(d.getMonth() - 1)
+  const d = new Date(date.getFullYear(), date.getMonth() - 1, 1)
   return formatMonth(d)
 }
 
 const CATEGORY_WORDS = ['餐饮', '交通', '购物', '娱乐', '住房', '医疗', '教育', '通讯', '礼物']
 
-export function extractQueryHints(message, { now = new Date() } = {}) {
+function findCategory(text) {
+  return CATEGORY_WORDS.find(item => text.includes(item))
+}
+
+export function extractQueryHints(message, { now = new Date(), context = [] } = {}) {
   const text = String(message || '')
   const hints = {}
 
   if (text.includes('本月')) hints.month = formatMonth(now)
   if (text.includes('上月')) hints.month = previousMonth(now)
 
-  const category = CATEGORY_WORDS.find(item => text.includes(item))
+  const category = findCategory(text) || findCategory(context.map(item => item.content).join(' '))
   if (category) hints.category = category
 
   return hints

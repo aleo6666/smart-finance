@@ -20,6 +20,23 @@ test('extractQueryHints detects month and category', () => {
   })
 })
 
+test('extractQueryHints fills missing category from recent context', () => {
+  assert.deepEqual(extractQueryHints('那上月呢？', {
+    now: new Date(2026, 6, 18),
+    context: [{ role: 'user', content: '刚才在看餐饮' }]
+  }), {
+    month: '2026-06',
+    category: '餐饮'
+  })
+})
+
+test('extractQueryHints calculates previous month from local month start', () => {
+  assert.deepEqual(extractQueryHints('上月购物怎么样', { now: new Date(2026, 2, 31) }), {
+    month: '2026-02',
+    category: '购物'
+  })
+})
+
 test('summarizeRecords totals amount and categories', () => {
   const summary = summarizeRecords([
     { amount: 20, category: '餐饮' },

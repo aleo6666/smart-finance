@@ -153,6 +153,45 @@ test('POST /api/chat skips long term retrieval for anonymous users', async () =>
   }
 })
 
+test('POST /api/chat uses context hints and skips slow retrieval', async () => {
+  const app = express()
+  app.use(express.json())
+  app.use((req, _res, next) => {
+    req.deviceId = 'device-1'
+    next()
+  })
+  app.use('/api/chat', createChatRouter({
+    getUserId: () => 7,
+    processMessage: async () => ({ intent: 'query', message: '我可以帮你查看消费统计。', data: null }),
+    getConversationContext: async () => [{ role: 'user', content: '刚才在看餐饮' }],
+    appendConversationMessage: async () => {},
+    retrieveSimilar: async (_message, options) => {
+      assert.equal(options.month, '2026-06')
+      assert.equal(options.category, '餐饮')
+      return new Promise(() => {})
+    }
+  }))
+
+  const { server, url } = await listen(app)
+  try {
+    const startedAt = Date.now()
+    const response = await fetch(`${url}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: '那上月呢？' })
+    })
+    const json = await response.json()
+
+    assert.equal(response.status, 200)
+    assert.equal(json.success, true)
+    assert.equal(json.data.memory.records, 0)
+    assert.deepEqual(json.data.memory.hints, { month: '2026-06', category: '餐饮' })
+    assert.ok(Date.now() - startedAt < 1000)
+  } finally {
+    server.close()
+  }
+})
+
 test('POST /api/chat appends context after record intent succeeds', async () => {
   const appended = []
   const app = express()

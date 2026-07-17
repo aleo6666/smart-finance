@@ -52,6 +52,13 @@ export function createChatRouter({
     })
   }
 
+  async function retrieveSimilarSafely(message, options) {
+    return withTimeout(retrieveSimilar(message, options)).catch(error => {
+      console.warn('[Chat] memory retrieval skipped:', error.message)
+      return []
+    })
+  }
+
   async function appendTurn(identity, userMessage, assistantMessage) {
     await withTimeout((async () => {
       await appendConversationMessage(identity, { role: 'user', content: userMessage })
@@ -74,10 +81,10 @@ export function createChatRouter({
 
       const shouldUseMemory = ['query', 'advice', 'chat'].includes(result.intent)
       if (shouldUseMemory) {
-        await getContextSafely(identity)
-        const hints = extractQueryHints(message)
+        const context = await getContextSafely(identity)
+        const hints = extractQueryHints(message, { context })
         const records = userId
-          ? await retrieveSimilar(message, { userId, ...hints, limit: 5 })
+          ? await retrieveSimilarSafely(message, { userId, ...hints, limit: 5 })
           : []
         result.message = buildMemoryReply({
           intent: result.intent,
