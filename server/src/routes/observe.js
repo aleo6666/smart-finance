@@ -1,13 +1,22 @@
 import { Router } from 'express'
 import { authMiddleware } from '../middleware/auth.js'
-import { getObserveStats } from '../services/observeService.js'
+import { getObserveStats as defaultGetObserveStats } from '../services/observeService.js'
 
-const router = Router()
-router.use(authMiddleware)
+export function createObserveRouter({
+  getObserveStats = defaultGetObserveStats
+} = {}) {
+  const router = Router()
+  router.use(authMiddleware)
 
-router.get('/stats', async (req, res) => {
-  const data = await getObserveStats({ userId: req.query.userId ? Number(req.query.userId) : req.userId })
-  res.json({ success: true, data })
-})
+  router.get('/stats', async (req, res) => {
+    const data = await getObserveStats({
+      userId: req.userId,
+      period: req.query.period
+    })
+    res.json({ success: true, data })
+  })
 
-export default router
+  return router
+}
+
+export default createObserveRouter()
