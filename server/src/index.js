@@ -25,6 +25,8 @@ import ledgersRouter from './routes/ledgers.js'
 import shareRouter from './routes/share.js'
 import exportRouter from './routes/export.js'
 import observeRouter from './routes/observe.js'
+import insightsRouter from './routes/insights.js'
+import datasetsRouter from './routes/datasets.js'
 import { startScheduler } from './services/scheduler.js'
 import { initVectorCollection } from './services/vectorMemory.js'
 
@@ -50,6 +52,8 @@ app.use('/api/ledgers', ledgersRouter)
 app.use('/api/share', shareRouter)
 app.use('/api/export', exportRouter)
 app.use('/api/observe', observeRouter)
+app.use('/api/insights', insightsRouter)
+app.use('/api/datasets', datasetsRouter)
 
 const uploadsDir = process.env.UPLOADS_DIR || 'uploads'
 app.use('/uploads', express.static(uploadsDir))
