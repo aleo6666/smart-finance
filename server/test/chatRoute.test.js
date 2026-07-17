@@ -14,6 +14,11 @@ function listen(app) {
   })
 }
 
+function previousMonthText(now = new Date()) {
+  const previous = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+  return `${previous.getFullYear()}-${String(previous.getMonth() + 1).padStart(2, '0')}`
+}
+
 test('POST /api/chat routes record intent through planner and recorder', async () => {
   const calls = { planned: 0, recorded: 0, enqueued: 0, statuses: [] }
   const app = express()
@@ -154,6 +159,7 @@ test('POST /api/chat skips long term retrieval for anonymous users', async () =>
 })
 
 test('POST /api/chat uses context hints and skips slow retrieval', async () => {
+  const expectedPreviousMonth = previousMonthText()
   const app = express()
   app.use(express.json())
   app.use((req, _res, next) => {
@@ -166,7 +172,7 @@ test('POST /api/chat uses context hints and skips slow retrieval', async () => {
     getConversationContext: async () => [{ role: 'user', content: '刚才在看餐饮' }],
     appendConversationMessage: async () => {},
     retrieveSimilar: async (_message, options) => {
-      assert.equal(options.month, '2026-06')
+      assert.equal(options.month, expectedPreviousMonth)
       assert.equal(options.category, '餐饮')
       return new Promise(() => {})
     }
@@ -185,7 +191,7 @@ test('POST /api/chat uses context hints and skips slow retrieval', async () => {
     assert.equal(response.status, 200)
     assert.equal(json.success, true)
     assert.equal(json.data.memory.records, 0)
-    assert.deepEqual(json.data.memory.hints, { month: '2026-06', category: '餐饮' })
+    assert.deepEqual(json.data.memory.hints, { month: expectedPreviousMonth, category: '餐饮' })
     assert.ok(Date.now() - startedAt < 1000)
   } finally {
     server.close()
