@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
-    "test": "node --test"
+    "test": "node --test",
+    "migrate:sqlite": "node src/scripts/migrate-sqlite-to-mysql.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
