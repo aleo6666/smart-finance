@@ -51,4 +51,14 @@ export async function cacheGet(key) {
   }
 }
 
+export async function cacheDelete(key) {
+  try {
+    const redis = getRedisClient()
+    if (redis.status === 'wait') await redis.connect()
+    await redis.del(key)
+  } catch {
+    memoryStore.delete(key)
+  }
+}
+
 export default getRedisClient
