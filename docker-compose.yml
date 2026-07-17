@@ -73,7 +73,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ZHIPU_API_KEY: ${ZHIPU_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      JWT_SECRET: ${JWT_SECRET:-change-me-to-random-64-char-string-xxxxxxxxxxxxxxxx}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       UPLOADS_DIR: /app/uploads
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
