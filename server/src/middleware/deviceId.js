@@ -1,5 +1,12 @@
 import { v4 as uuidv4 } from 'uuid'
-import { trackDevice } from '../db.js'
+import db from '../db.js'
+
+async function trackDevice(deviceId) {
+  await db('devices')
+    .insert({ device_id: deviceId })
+    .onConflict('device_id')
+    .merge({ last_seen: db.fn.now() })
+}
 
 export function deviceIdMiddleware(req, res, next) {
   let deviceId = req.headers['x-device-id']
@@ -10,7 +17,6 @@ export function deviceIdMiddleware(req, res, next) {
   }
 
   req.deviceId = deviceId
-  // 异步追踪设备访问，不阻塞请求
-  try { trackDevice(deviceId) } catch {}
+  trackDevice(deviceId).catch(error => console.warn('[Device] track failed:', error.message))
   next()
 }
