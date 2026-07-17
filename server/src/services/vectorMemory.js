@@ -99,6 +99,47 @@ export async function embedRecord(record, {
   })
 }
 
-export async function retrieveSimilar() {
-  return []
+function createMatchFilter({ userId, month, category }) {
+  const must = [{ key: 'userId', match: { value: userId } }]
+  if (month) must.push({ key: 'month', match: { value: month } })
+  if (category) must.push({ key: 'category', match: { value: category } })
+  return { must }
+}
+
+function mapSearchResult(item) {
+  const payload = item.payload || {}
+  return {
+    recordId: payload.recordId,
+    date: payload.date,
+    category: payload.category,
+    amount: Number(payload.amount || 0),
+    merchant: payload.merchant || '',
+    description: payload.description || '',
+    score: item.score || 0
+  }
+}
+
+export async function retrieveSimilar(query, {
+  userId,
+  month,
+  category,
+  limit = 5,
+  client = createVectorClient(),
+  collection = config.vector.collection,
+  getEmbedding: embeddingFn = getEmbedding
+} = {}) {
+  if (!userId || !query) return []
+  try {
+    const vector = await embeddingFn(query)
+    const results = await client.search(collection, {
+      vector,
+      limit,
+      with_payload: true,
+      filter: createMatchFilter({ userId, month, category })
+    })
+    return (results || []).map(mapSearchResult)
+  } catch (error) {
+    console.warn('[VectorMemory] retrieve skipped:', error.message)
+    return []
+  }
 }
