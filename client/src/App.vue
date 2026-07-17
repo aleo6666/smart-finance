@@ -48,10 +48,16 @@
         <div v-if="store.reminders.length === 0" style="padding:20px;text-align:center;color:var(--text-secondary);font-size:14px;">
           暂无新提醒 ✨
         </div>
-        <div v-for="r in store.reminders" :key="r.id" class="reminder-item" :class="r.type">
-          <div class="reminder-title">{{ r.title }}</div>
-          <div class="reminder-msg">{{ r.message }}</div>
-          <div class="reminder-time">{{ r.created_at }}</div>
+        <div v-for="r in store.reminders" :key="r.id" class="reminder-item" :class="[r.type, r.display?.accent]">
+          <div class="reminder-item-main">
+            <div class="reminder-title-row">
+              <span class="reminder-title">{{ r.display?.summary || r.title }}</span>
+              <span class="reminder-level">{{ r.display?.levelText || '提醒' }}</span>
+            </div>
+            <div class="reminder-msg">{{ r.display?.detail || r.message }}</div>
+            <div class="reminder-time">{{ r.created_at }}</div>
+          </div>
+          <button class="reminder-read-btn" @click.stop="store.markReminderRead(r.id)">已读</button>
         </div>
       </div>
     </div>
@@ -85,3 +91,38 @@ onMounted(() => {
   store.refreshReminders()
 })
 </script>
+
+<style scoped>
+.reminder-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  border-left: 3px solid var(--primary);
+}
+.reminder-item.warning { border-left-color: var(--warning); }
+.reminder-item.danger { border-left-color: var(--danger); }
+.reminder-item-main { flex: 1; min-width: 0; }
+.reminder-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.reminder-level {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+.reminder-read-btn {
+  border: none;
+  background: transparent;
+  color: var(--primary);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.reminder-read-btn:hover { text-decoration: underline; }
+</style>
