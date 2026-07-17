@@ -15,7 +15,7 @@ function listen(app) {
 }
 
 test('POST /api/chat routes record intent through planner and recorder', async () => {
-  const calls = { planned: 0, recorded: 0 }
+  const calls = { planned: 0, recorded: 0, enqueued: 0, statuses: [] }
   const app = express()
   app.use(express.json())
   app.use((req, _res, next) => {
@@ -32,12 +32,22 @@ test('POST /api/chat routes record intent through planner and recorder', async (
     createRecordTaskFromNlu: input => {
       calls.planned += 1
       assert.equal(input.userId, 5)
-      return { taskId: 'task-1', payload: { userId: 5, deviceId: 'device-1', record: input.nluResult.data } }
+      return { taskId: 'task-1', agentType: 'recorder', payload: { userId: 5, deviceId: 'device-1', record: input.nluResult.data } }
     },
     recordFromPlannerTask: async ({ task }) => {
       calls.recorded += 1
       assert.equal(task.taskId, 'task-1')
       return { recordIds: [99] }
+    },
+    enqueueTask: async (agentType, payload, options) => {
+      calls.enqueued += 1
+      assert.equal(agentType, 'recorder')
+      assert.equal(payload.userId, 5)
+      assert.equal(options.taskId, 'task-1')
+      return { taskId: 'task-1' }
+    },
+    markTaskStatus: async (taskId, status) => {
+      calls.statuses.push({ taskId, status })
     }
   }))
 
@@ -55,7 +65,9 @@ test('POST /api/chat routes record intent through planner and recorder', async (
     assert.equal(json.data.intent, 'record')
     assert.deepEqual(json.data.recordIds, [99])
     assert.equal(calls.planned, 1)
+    assert.equal(calls.enqueued, 1)
     assert.equal(calls.recorded, 1)
+    assert.deepEqual(calls.statuses.map(item => item.status), ['running', 'succeeded'])
   } finally {
     server.close()
   }

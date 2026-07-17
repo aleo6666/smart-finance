@@ -9,6 +9,22 @@ function taskKey(taskId) {
 export async function markTaskStatus(taskId, status, data = {}) {
   const current = (await cacheGet(taskKey(taskId))) || {}
   await cacheSet(taskKey(taskId), { ...current, ...data, taskId, status, updatedAt: Date.now() }, 3600)
+
+  try {
+    const updates = {
+      status,
+      updated_at: db.fn.now()
+    }
+    if (data.result) updates.result_json = JSON.stringify(data.result)
+    if (data.errorMessage) updates.error_message = data.errorMessage
+    if (['succeeded', 'failed', 'timeout'].includes(status)) updates.completed_at = db.fn.now()
+
+    await db('agent_tasks')
+      .where({ task_id: taskId })
+      .update(updates)
+  } catch (error) {
+    console.warn('[AgentQueue] MySQL task status skipped:', error.message)
+  }
 }
 
 export async function enqueueTask(agentType, payload, { taskId = randomUUID(), redis = getRedisClient() } = {}) {

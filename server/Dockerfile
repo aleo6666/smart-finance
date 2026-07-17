@@ -1,7 +1,7 @@
-FROM node:22-alpine
+FROM node:22.21.1-alpine
 
 # better-sqlite3 原生编译所需工具链
-RUN apk add --no-cache python3 make g++ wget
+RUN apk add --no-cache python3 make g++ wget pkgconfig cairo-dev pango-dev pixman-dev jpeg-dev giflib-dev librsvg-dev
 
 WORKDIR /app
 

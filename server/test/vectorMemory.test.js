@@ -41,7 +41,7 @@ test('embedRecord upserts record payload to vector client', async () => {
 
   assert.equal(calls.length, 1)
   assert.equal(calls[0].collection, 'finance_records')
-  assert.equal(calls[0].payload.points[0].id, '9')
+  assert.equal(calls[0].payload.points[0].id, 9)
   assert.equal(calls[0].payload.points[0].vector.length, 8)
   assert.equal(calls[0].payload.points[0].payload.recordId, 9)
   assert.match(recordToTextBlock(record), /午饭/)

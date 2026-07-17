@@ -4,6 +4,7 @@ import config from '../config.js'
 import { processMessage as defaultProcessMessage } from '../services/nlu.js'
 import { createRecordTaskFromNlu as defaultCreateRecordTaskFromNlu } from '../services/plannerAgent.js'
 import { recordFromPlannerTask as defaultRecordFromPlannerTask } from '../services/recorderAgent.js'
+import { enqueueTask as defaultEnqueueTask, markTaskStatus as defaultMarkTaskStatus } from '../services/agentQueue.js'
 
 function defaultGetUserId(req) {
   try {
@@ -19,7 +20,9 @@ export function createChatRouter({
   getUserId = defaultGetUserId,
   processMessage = defaultProcessMessage,
   createRecordTaskFromNlu = defaultCreateRecordTaskFromNlu,
-  recordFromPlannerTask = defaultRecordFromPlannerTask
+  recordFromPlannerTask = defaultRecordFromPlannerTask,
+  enqueueTask = defaultEnqueueTask,
+  markTaskStatus = defaultMarkTaskStatus
 } = {}) {
   const router = Router()
 
@@ -39,7 +42,10 @@ export function createChatRouter({
       if (result.intent === 'record' && result.data?.amount) {
         const task = createRecordTaskFromNlu({ userId, deviceId, message, nluResult: result })
         if (task) {
+          await enqueueTask(task.agentType, task.payload, { taskId: task.taskId })
+          await markTaskStatus(task.taskId, 'running')
           const recordResult = await recordFromPlannerTask({ task })
+          await markTaskStatus(task.taskId, 'succeeded', { result: recordResult })
           result.recordIds = recordResult.recordIds
           result.agent = { taskId: task.taskId, status: 'succeeded' }
         }

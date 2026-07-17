@@ -80,7 +80,7 @@ export async function embedRecord(record, {
   const vector = await embeddingFn(textBlock)
   await client.upsert(collection, {
     points: [{
-      id: String(record.id),
+      id: Number(record.id),
       vector,
       payload: {
         recordId: record.id,
