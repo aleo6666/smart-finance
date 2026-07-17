@@ -7,6 +7,10 @@ function getDeviceId() {
   return id
 }
 
+function getToken() {
+  return localStorage.getItem('auth_token')
+}
+
 function isFormData(body) {
   return body && typeof body === 'object' && body.constructor && body.constructor.name === 'FormData'
 }
@@ -17,7 +21,12 @@ async function request(path, options = {}) {
     'X-Device-Id': getDeviceId(),
     ...options.headers
   }
-  // 非 FormData 请求才设置 JSON Content-Type
+
+  const token = getToken()
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+
   if (!isForm) {
     headers['Content-Type'] = 'application/json'
   }
@@ -53,6 +62,31 @@ export const api = {
   },
   deleteRecord(id) {
     return request(`/api/records/${id}`, { method: 'DELETE' })
+  },
+
+  // OCR 识别（不自动保存，返回识别结果供用户确认）
+  ocrImage(file) {
+    return this.ocrReceipt(file)
+  },
+  ocrReceipt(file) {
+    const formData = new FormData()
+    formData.append('image', file)
+    return request('/api/records/ocr', {
+      method: 'POST',
+      body: formData
+    })
+  },
+  confirmOcr(ocrSessionId, records) {
+    return request('/api/records/ocr/confirm', {
+      method: 'POST',
+      body: JSON.stringify({ ocrSessionId, records })
+    })
+  },
+  cancelOcr(ocrSessionId) {
+    return request('/api/records/ocr/cancel', {
+      method: 'POST',
+      body: JSON.stringify({ ocrSessionId })
+    })
   },
 
   // 报告
@@ -144,7 +178,10 @@ export const api = {
     formData.append('image', file)
     const res = await fetch('/api/vision', {
       method: 'POST',
-      headers: { 'X-Device-Id': getDeviceId() },
+      headers: {
+        'Authorization': `Bearer ${getToken()}`,
+        'X-Device-Id': getDeviceId()
+      },
       body: formData
     })
     return res.json()
