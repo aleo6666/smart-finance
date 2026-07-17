@@ -41,6 +41,25 @@
       </div>
     </div>
 
+    <div class="report-card risk-card" style="margin-bottom:20px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <h3>⚠️ 本月风险提醒</h3>
+        <button v-if="store.reminderHighlights.length > 0" class="btn btn-sm btn-outline" @click="store.refreshReminderHighlights()">刷新</button>
+      </div>
+      <div v-if="store.reminderHighlights.length > 0" class="risk-list">
+        <div v-for="r in store.reminderHighlights" :key="r.id" class="risk-item" :class="r.display?.accent">
+          <div style="flex:1">
+            <div class="risk-summary">{{ r.display?.summary || r.title }}</div>
+            <div class="risk-detail">{{ r.display?.detail || r.message }}</div>
+          </div>
+          <button class="btn btn-sm btn-outline" @click="store.markReminderRead(r.id)">已读</button>
+        </div>
+      </div>
+      <div v-else class="empty-state" style="padding:18px;">
+        <p>暂无预算风险，继续保持 ✨</p>
+      </div>
+    </div>
+
     <!-- 趋势图 -->
     <div class="report-card" style="margin-bottom: 20px;">
       <h3>📈 消费趋势（近6个月）</h3>
@@ -90,7 +109,8 @@ async function loadData() {
     api.getMonthlyReport(),
     api.getCategoryReport(),
     api.getTrend(6),
-    api.getRecords({ limit: 10 })
+    api.getRecords({ limit: 10 }),
+    store.refreshReminderHighlights()
   ])
 
   monthly.value = m.data
@@ -149,3 +169,12 @@ function renderCharts() {
 
 onMounted(loadData)
 </script>
+
+<style scoped>
+.risk-list{display:flex;flex-direction:column;gap:10px}
+.risk-item{display:flex;align-items:flex-start;gap:12px;padding:12px;border:1px solid var(--border);border-left:4px solid var(--primary);border-radius:10px;background:#fff}
+.risk-item.warning{border-left-color:var(--warning);background:#fffbeb}
+.risk-item.danger{border-left-color:var(--danger);background:#fef2f2}
+.risk-summary{font-weight:600;font-size:14px;color:var(--text)}
+.risk-detail{font-size:12px;color:var(--text-secondary);margin-top:4px}
+</style>
