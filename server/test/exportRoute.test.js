@@ -19,7 +19,7 @@ function token(userId = 7) {
   return jwt.sign({ userId }, config.auth.jwtSecret)
 }
 
-function appWithRouter(buildReportCalls = []) {
+function appWithRouter(buildReportCalls = [], { now } = {}) {
   const app = express()
   app.use(express.json())
   app.use('/api/export', createExportRouter({
@@ -29,7 +29,8 @@ function appWithRouter(buildReportCalls = []) {
     },
     buildExcelBuffer: async () => Buffer.from('excel'),
     buildPdfBuffer: async () => Buffer.from('%PDF-test'),
-    buildImageBuffer: () => Buffer.from([0x89, 0x50, 0x4e, 0x47])
+    buildImageBuffer: () => Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+    now
   }))
   return app
 }
@@ -46,7 +47,8 @@ test('GET /api/export/excel requires auth', async () => {
 
 test('GET /api/export/excel uses default period and empty filters', async () => {
   const buildReportCalls = []
-  const { server, url } = await listen(appWithRouter(buildReportCalls))
+  const now = () => new Date(2026, 6, 18, 12, 0)
+  const { server, url } = await listen(appWithRouter(buildReportCalls, { now }))
   try {
     const response = await fetch(`${url}/api/export/excel`, {
       headers: { Authorization: `Bearer ${token()}` }
@@ -56,7 +58,7 @@ test('GET /api/export/excel uses default period and empty filters', async () => 
       userId: 7,
       ledgerId: null,
       periodType: 'month',
-      periodValue: new Date().toISOString().slice(0, 7),
+      periodValue: '2026-07',
       filters: {
         category: undefined,
         member: undefined,
@@ -64,6 +66,21 @@ test('GET /api/export/excel uses default period and empty filters', async () => 
         project: undefined
       }
     }])
+  } finally {
+    server.close()
+  }
+})
+
+test('GET /api/export/excel uses the local month at the start of a month', async () => {
+  const buildReportCalls = []
+  const now = () => new Date(2026, 7, 1, 0, 30)
+  const { server, url } = await listen(appWithRouter(buildReportCalls, { now }))
+  try {
+    const response = await fetch(`${url}/api/export/excel`, {
+      headers: { Authorization: `Bearer ${token()}` }
+    })
+    assert.equal(response.status, 200)
+    assert.equal(buildReportCalls[0].periodValue, '2026-08')
   } finally {
     server.close()
   }
