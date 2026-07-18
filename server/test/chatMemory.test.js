@@ -12,7 +12,9 @@ test('extractQueryHints detects month and category', () => {
 
   assert.deepEqual(extractQueryHints('本月餐饮花了多少', { now: new Date('2026-07-18') }), {
     month: currentMonth,
-    category: '餐饮'
+    category: '餐饮',
+    type: 'expense',
+    queryKind: 'summary'
   })
   assert.deepEqual(extractQueryHints('上月购物怎么样', { now: new Date('2026-07-18') }), {
     month: previousMonth,
@@ -34,6 +36,23 @@ test('extractQueryHints calculates previous month from local month start', () =>
   assert.deepEqual(extractQueryHints('上月购物怎么样', { now: new Date(2026, 2, 31) }), {
     month: '2026-02',
     category: '购物'
+  })
+})
+
+test('extractQueryHints detects type and query kind', () => {
+  assert.deepEqual(extractQueryHints('本月收入多少', { now: new Date(2026, 6, 18) }), {
+    month: '2026-07',
+    type: 'income',
+    queryKind: 'summary'
+  })
+  assert.deepEqual(extractQueryHints('最近几笔餐饮', { now: new Date(2026, 6, 18) }), {
+    category: '餐饮',
+    queryKind: 'recent'
+  })
+  assert.deepEqual(extractQueryHints('本月最大一笔支出', { now: new Date(2026, 6, 18) }), {
+    month: '2026-07',
+    type: 'expense',
+    queryKind: 'largest'
   })
 })
 
