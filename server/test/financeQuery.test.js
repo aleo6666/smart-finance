@@ -5,8 +5,8 @@ import {
   queryFinanceSummary
 } from '../src/services/financeQuery.js'
 
-function createRecordsDb(rows) {
-  return function db(tableName) {
+function createRecordsDb(rows, { failUnboundedSelect = false } = {}) {
+  const db = function db(tableName) {
     assert.equal(tableName, 'records')
     const state = { rows: [...rows], limit: null }
     const api = {
@@ -30,20 +30,41 @@ function createRecordsDb(rows) {
         })
         return api
       },
+      orderByRaw(sql) {
+        if (sql.includes('COALESCE')) {
+          state.rows.sort((a, b) => (b.amount_cny ?? b.amount) - (a.amount_cny ?? a.amount))
+        }
+        return api
+      },
       limit(value) {
         state.limit = value
         return api
       },
-      async select() {
+      async select(...columns) {
+        if (columns.some(column => column?.sql?.includes('COUNT(*)'))) {
+          return [{
+            count: state.rows.length,
+            total: state.rows.reduce((sum, row) => sum + Number(row.amount_cny ?? row.amount ?? 0), 0)
+          }]
+        }
+        if (failUnboundedSelect && !state.limit) {
+          throw new Error('unbounded record select')
+        }
         const rowsToReturn = state.limit ? state.rows.slice(0, state.limit) : state.rows
         return rowsToReturn.map(row => ({
           ...row,
           amount_cny: row.amount_cny ?? row.amount
         }))
+      },
+      async first() {
+        const rows = await api.select()
+        return rows[0]
       }
     }
     return api
   }
+  db.raw = sql => ({ sql })
+  return db
 }
 
 test('queryFinanceSummary filters by user month category and type', async () => {
@@ -90,7 +111,7 @@ test('queryFinanceSummary totals all matching rows beyond display limit', async 
     date: '2026-07-18',
     description: `第${index + 1}笔`
   }))
-  const db = createRecordsDb(rows)
+  const db = createRecordsDb(rows, { failUnboundedSelect: true })
 
   const summary = await queryFinanceSummary({
     userId: 7,

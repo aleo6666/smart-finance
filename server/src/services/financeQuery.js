@@ -39,25 +39,36 @@ export async function queryFinanceSummary({
     return { hints, count: 0, total: 0, average: 0, maxRecord: null, records: [] }
   }
 
-  const baseQuery = applyFilters(dbClient('records'), { userId, hints })
-  const records = (await baseQuery.orderBy('date', 'desc').select()).map(normalizeRecord)
-  const total = records.reduce((sum, record) => sum + amountOf(record), 0)
-  const maxRecord = records.reduce((max, record) => {
-    if (!max) return record
-    return amountOf(record) > amountOf(max) ? record : max
-  }, null)
+  const aggregateRows = await applyFilters(dbClient('records'), { userId, hints })
+    .select(
+      dbClient.raw('COUNT(*) as count'),
+      dbClient.raw('SUM(COALESCE(amount_cny, amount)) as total')
+    )
+  const aggregate = aggregateRows[0] || {}
 
-  const orderedRecords = hints.queryKind === 'largest'
-    ? [...records].sort((a, b) => amountOf(b) - amountOf(a)).slice(0, limit)
-    : records.slice(0, limit)
+  const maxRows = await applyFilters(dbClient('records'), { userId, hints })
+    .orderByRaw('COALESCE(amount_cny, amount) DESC')
+    .limit(1)
+    .select()
+  const maxRecord = maxRows[0] ? normalizeRecord(maxRows[0]) : null
+
+  const displayQuery = applyFilters(dbClient('records'), { userId, hints })
+  if (hints.queryKind === 'largest') {
+    displayQuery.orderByRaw('COALESCE(amount_cny, amount) DESC')
+  } else {
+    displayQuery.orderBy('date', 'desc')
+  }
+  const records = (await displayQuery.limit(limit).select()).map(normalizeRecord)
+  const count = Number(aggregate.count || 0)
+  const total = Number(aggregate.total || 0)
 
   return {
     hints,
-    count: records.length,
+    count,
     total,
-    average: records.length ? total / records.length : 0,
+    average: count ? total / count : 0,
     maxRecord,
-    records: orderedRecords
+    records
   }
 }
 
