@@ -7,6 +7,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const defaultPdfFontPath = path.join(__dirname, '..', 'assets', 'NotoSansSC-Regular.otf')
 
 function recordAmount(record) {
   return Number(record.amount_cny ?? record.amount ?? 0)
@@ -42,7 +43,11 @@ export async function buildExcelBuffer(report) {
   return Buffer.from(await workbook.xlsx.writeBuffer())
 }
 
-export function buildPdfBuffer(report) {
+export function buildPdfBuffer(report, { fontPath = defaultPdfFontPath } = {}) {
+  if (!existsSync(fontPath)) {
+    return Promise.reject(new Error(`缺少中文字体文件: ${fontPath}`))
+  }
+
   return new Promise((resolve, reject) => {
     const chunks = []
     const doc = new PDFDocument()
@@ -50,13 +55,8 @@ export function buildPdfBuffer(report) {
     doc.on('end', () => resolve(Buffer.concat(chunks)))
     doc.on('error', reject)
 
-    const fontPath = path.join(__dirname, '..', 'assets', 'NotoSansSC-Regular.ttf')
-    if (existsSync(fontPath)) {
-      doc.registerFont('CJK', fontPath)
-      doc.font('CJK')
-    } else {
-      doc.font('Helvetica')
-    }
+    doc.registerFont('CJK', fontPath)
+    doc.font('CJK')
 
     doc.fontSize(18).text('Smart Finance Report')
     doc.fontSize(12).text(`Income: ${report.income}  Expense: ${report.expense}  Balance: ${report.balance}`)
