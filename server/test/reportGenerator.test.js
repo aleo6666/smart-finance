@@ -5,7 +5,7 @@ import { buildReport, periodRange } from '../src/services/reportGenerator.js'
 function createReportDb(rows) {
   function db(tableName) {
     assert.equal(tableName, 'records as r')
-    const state = { rows: [...rows], limit: null, offset: 0, groupBy: null }
+    const state = { rows: [...rows], limit: null, offset: 0, groupBy: null, orderBy: [] }
     const api = {
       where(field, value) {
         const key = field.replace('r.', '')
@@ -34,12 +34,17 @@ function createReportDb(rows) {
         state.groupBy = field.replace('r.', '')
         return api
       },
-      orderBy() { return api },
+      orderBy(column, direction = 'asc') {
+        state.orderBy.push({ column, direction })
+        return api
+      },
       limit(value) {
+        if (!Number.isInteger(value) || value < 1) throw new RangeError('invalid limit')
         state.limit = value
         return api
       },
       offset(value) {
+        if (!Number.isInteger(value) || value < 0) throw new RangeError('invalid offset')
         state.offset = value
         return api
       },
@@ -82,7 +87,18 @@ function createReportDb(rows) {
         }
         return [...map.values()]
       }
-      return state.rows.slice(state.offset, state.limit ? state.offset + state.limit : undefined).map(row => ({
+      const orderedRows = [...state.rows].sort((left, right) => {
+        for (const { column, direction } of state.orderBy) {
+          const key = String(column).replace('r.', '')
+          const leftValue = key.includes('COALESCE') ? amountOf(left) : left[key]
+          const rightValue = key.includes('COALESCE') ? amountOf(right) : right[key]
+          if (leftValue === rightValue) continue
+          const comparison = leftValue < rightValue ? -1 : 1
+          return direction === 'desc' ? -comparison : comparison
+        }
+        return 0
+      })
+      return orderedRows.slice(state.offset, state.limit ? state.offset + state.limit : undefined).map(row => ({
         ...row,
         amount_cny: amountOf(row)
       }))
@@ -124,4 +140,60 @@ test('buildReport aggregates records by user period category and returns limited
   assert.equal(report.count, 2)
   assert.deepEqual(report.byCategory.map(item => item.category), ['购物', '餐饮'])
   assert.equal(report.records.length, 2)
+})
+
+test('buildReport uses id as stable secondary sort before applying offset', async () => {
+  const db = createReportDb([
+    { id: 1, user_id: 7, type: 'expense', category: 'meal', amount: 10, currency: 'CNY', date: '2026-07-18' },
+    { id: 2, user_id: 7, type: 'expense', category: 'meal', amount: 20, currency: 'CNY', date: '2026-07-17' },
+    { id: 3, user_id: 7, type: 'expense', category: 'meal', amount: 30, currency: 'CNY', date: '2026-07-18' }
+  ])
+
+  const report = await buildReport({
+    userId: 7,
+    periodType: 'month',
+    periodValue: '2026-07',
+    filters: { sortBy: 'date', sortOrder: 'desc', limit: 1, offset: 1 },
+    db
+  })
+
+  assert.deepEqual(report.records.map(record => record.id), [1])
+})
+
+test('buildReport bounds invalid and excessive pagination values', async () => {
+  const rows = Array.from({ length: 2001 }, (_, index) => ({
+    id: index + 1,
+    user_id: 7,
+    type: 'expense',
+    category: 'meal',
+    amount: 1,
+    currency: 'CNY',
+    date: '2026-07-18'
+  }))
+  const db = createReportDb(rows)
+
+  for (const filters of [
+    { limit: 'abc', offset: -4 },
+    { limit: Infinity, offset: 'invalid' },
+    { limit: 0.5, offset: 0.5 }
+  ]) {
+    const report = await buildReport({
+      userId: 7,
+      periodType: 'month',
+      periodValue: '2026-07',
+      filters,
+      db
+    })
+    assert.equal(report.records.length, 2000)
+    assert.equal(report.records[0].id, 2001)
+  }
+
+  const capped = await buildReport({
+    userId: 7,
+    periodType: 'month',
+    periodValue: '2026-07',
+    filters: { limit: 5000 },
+    db
+  })
+  assert.equal(capped.records.length, 2000)
 })

@@ -56,8 +56,15 @@ export async function buildReport({
   db: dbClient = db
 } = {}) {
   const { start, end } = periodRange(periodType, periodValue)
-  const limit = Number(filters.limit || 2000)
-  const offset = Number(filters.offset || 0)
+  const requestedLimit = Number(filters.limit)
+  const requestedOffset = Number(filters.offset)
+  const integerLimit = Math.floor(requestedLimit)
+  const limit = Number.isFinite(integerLimit) && integerLimit >= 1
+    ? Math.min(integerLimit, 2000)
+    : 2000
+  const offset = Number.isFinite(requestedOffset) && requestedOffset >= 0
+    ? Math.floor(requestedOffset)
+    : 0
   const scoped = () => applyReportFilters(
     dbClient('records as r'),
     { userId, ledgerId, start, end, filters }
@@ -99,6 +106,7 @@ export async function buildReport({
   const records = await scoped()
     .select('r.*', dbClient.raw('COALESCE(r.amount_cny, r.amount) as amount_cny'))
     .orderBy(sortBy, sortOrder)
+    .orderBy('r.id', sortOrder)
     .limit(limit)
     .offset(offset)
 
