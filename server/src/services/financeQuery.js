@@ -40,7 +40,7 @@ export async function queryFinanceSummary({
   }
 
   const baseQuery = applyFilters(dbClient('records'), { userId, hints })
-  const records = (await baseQuery.orderBy('date', 'desc').limit(200).select()).map(normalizeRecord)
+  const records = (await baseQuery.orderBy('date', 'desc').select()).map(normalizeRecord)
   const total = records.reduce((sum, record) => sum + amountOf(record), 0)
   const maxRecord = records.reduce((max, record) => {
     if (!max) return record

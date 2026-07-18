@@ -79,6 +79,31 @@ test('queryFinanceSummary supports recent and largest query kinds', async () => 
   assert.equal(largest.maxRecord.id, 2)
 })
 
+test('queryFinanceSummary totals all matching rows beyond display limit', async () => {
+  const rows = Array.from({ length: 201 }, (_, index) => ({
+    id: index + 1,
+    user_id: 7,
+    type: 'expense',
+    category: '餐饮',
+    amount: 1,
+    amount_cny: 1,
+    date: '2026-07-18',
+    description: `第${index + 1}笔`
+  }))
+  const db = createRecordsDb(rows)
+
+  const summary = await queryFinanceSummary({
+    userId: 7,
+    hints: { month: '2026-07', category: '餐饮', type: 'expense', queryKind: 'summary' },
+    db,
+    limit: 5
+  })
+
+  assert.equal(summary.count, 201)
+  assert.equal(summary.total, 201)
+  assert.equal(summary.records.length, 5)
+})
+
 test('buildFinanceQueryReply creates summary recent largest and empty replies', () => {
   const summary = {
     hints: { month: '2026-07', category: '餐饮', type: 'expense', queryKind: 'summary' },
