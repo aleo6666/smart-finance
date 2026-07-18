@@ -14,6 +14,10 @@ import {
   extractQueryHints
 } from '../services/chatMemory.js'
 import { retrieveSimilar as defaultRetrieveSimilar } from '../services/vectorMemory.js'
+import {
+  buildFinanceQueryReply,
+  queryFinanceSummary as defaultQueryFinanceSummary
+} from '../services/financeQuery.js'
 
 function defaultGetUserId(req) {
   try {
@@ -34,7 +38,8 @@ export function createChatRouter({
   markTaskStatus = defaultMarkTaskStatus,
   getConversationContext = defaultGetConversationContext,
   appendConversationMessage = defaultAppendConversationMessage,
-  retrieveSimilar = defaultRetrieveSimilar
+  retrieveSimilar = defaultRetrieveSimilar,
+  queryFinanceSummary = defaultQueryFinanceSummary
 } = {}) {
   const router = Router()
 
@@ -56,6 +61,13 @@ export function createChatRouter({
     return withTimeout(retrieveSimilar(message, options)).catch(error => {
       console.warn('[Chat] memory retrieval skipped:', error.message)
       return []
+    })
+  }
+
+  async function queryFinanceSafely(userId, hints) {
+    return withTimeout(queryFinanceSummary({ userId, hints }), 500).catch(error => {
+      console.warn('[Chat] finance query skipped:', error.message)
+      return null
     })
   }
 
@@ -83,14 +95,27 @@ export function createChatRouter({
       if (shouldUseMemory) {
         const context = await getContextSafely(identity)
         const hints = extractQueryHints(message, { context })
+        const financeSummary = userId && result.intent === 'query'
+          ? await queryFinanceSafely(userId, hints)
+          : null
         const records = userId
           ? await retrieveSimilarSafely(message, { userId, ...hints, limit: 5 })
           : []
-        result.message = buildMemoryReply({
-          intent: result.intent,
-          baseMessage: result.message,
-          records
-        })
+        if (financeSummary) {
+          result.message = buildFinanceQueryReply(financeSummary)
+          result.finance = {
+            count: financeSummary.count,
+            total: financeSummary.total,
+            average: financeSummary.average,
+            hints: financeSummary.hints
+          }
+        } else {
+          result.message = buildMemoryReply({
+            intent: result.intent,
+            baseMessage: result.message,
+            records
+          })
+        }
         result.memory = {
           records: records.length,
           hints

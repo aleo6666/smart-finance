@@ -101,7 +101,8 @@ test('POST /api/chat enhances query reply with retrieved records and context', a
     retrieveSimilar: async (message, options) => {
       calls.retrieve.push({ message, options })
       return [{ recordId: 1, amount: 25, category: '餐饮', date: '2026-07-18' }]
-    }
+    },
+    queryFinanceSummary: async () => null
   }))
 
   const { server, url } = await listen(app)
@@ -175,7 +176,8 @@ test('POST /api/chat uses context hints and skips slow retrieval', async () => {
       assert.equal(options.month, expectedPreviousMonth)
       assert.equal(options.category, '餐饮')
       return new Promise(() => {})
-    }
+    },
+    queryFinanceSummary: async () => null
   }))
 
   const { server, url } = await listen(app)
@@ -193,6 +195,86 @@ test('POST /api/chat uses context hints and skips slow retrieval', async () => {
     assert.equal(json.data.memory.records, 0)
     assert.deepEqual(json.data.memory.hints, { month: expectedPreviousMonth, category: '餐饮' })
     assert.ok(Date.now() - startedAt < 1000)
+  } finally {
+    server.close()
+  }
+})
+
+test('POST /api/chat answers query with exact finance summary', async () => {
+  const currentMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
+  const app = express()
+  app.use(express.json())
+  app.use((req, _res, next) => {
+    req.deviceId = 'device-1'
+    next()
+  })
+  app.use('/api/chat', createChatRouter({
+    getUserId: () => 7,
+    processMessage: async () => ({ intent: 'query', message: '我可以帮你查看消费统计。', data: null }),
+    getConversationContext: async () => [],
+    appendConversationMessage: async () => {},
+    retrieveSimilar: async () => [],
+    queryFinanceSummary: async ({ userId, hints }) => {
+      assert.equal(userId, 7)
+      assert.equal(hints.month, currentMonth)
+      assert.equal(hints.category, '餐饮')
+      return {
+        hints,
+        count: 1,
+        total: 25,
+        average: 25,
+        maxRecord: { amount: 25, date: '2026-07-18', description: '午饭' },
+        records: []
+      }
+    }
+  }))
+
+  const { server, url } = await listen(app)
+  try {
+    const response = await fetch(`${url}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: '本月餐饮花了多少' })
+    })
+    const json = await response.json()
+
+    assert.equal(response.status, 200)
+    assert.equal(json.success, true)
+    assert.match(json.data.message, /25\.00 元/)
+    assert.equal(json.data.finance.count, 1)
+  } finally {
+    server.close()
+  }
+})
+
+test('POST /api/chat degrades when exact finance query fails', async () => {
+  const app = express()
+  app.use(express.json())
+  app.use((req, _res, next) => {
+    req.deviceId = 'device-1'
+    next()
+  })
+  app.use('/api/chat', createChatRouter({
+    getUserId: () => 7,
+    processMessage: async () => ({ intent: 'query', message: '我可以帮你查看消费统计。', data: null }),
+    getConversationContext: async () => [],
+    appendConversationMessage: async () => {},
+    retrieveSimilar: async () => [],
+    queryFinanceSummary: async () => { throw new Error('mysql down') }
+  }))
+
+  const { server, url } = await listen(app)
+  try {
+    const response = await fetch(`${url}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: '本月餐饮花了多少' })
+    })
+    const json = await response.json()
+
+    assert.equal(response.status, 200)
+    assert.equal(json.success, true)
+    assert.equal(json.data.message, '我可以帮你查看消费统计。')
   } finally {
     server.close()
   }
