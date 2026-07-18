@@ -5,8 +5,6 @@ import jwt from 'jsonwebtoken'
 import config from '../config.js'
 import { authMiddleware } from '../middleware/auth.js'
 
-const router = Router()
-
 function getOptionalUserId(req) {
   try {
     const h = req.headers.authorization
@@ -17,15 +15,15 @@ function getOptionalUserId(req) {
   return null
 }
 
-function scopedRecords(req, userId = getOptionalUserId(req)) {
-  const query = db('records')
+function scopedRecords(dbClient, req, userId = getOptionalUserId(req)) {
+  const query = dbClient('records')
   if (userId) query.where('user_id', userId)
   else query.where('device_id', req.deviceId)
   return query
 }
 
-async function monthlySummary(req, month) {
-  const rows = await scopedRecords(req)
+async function monthlySummary(dbClient, req, month) {
+  const rows = await scopedRecords(dbClient, req)
     .whereRaw('DATE_FORMAT(date, "%Y-%m") = ?', [month])
     .select('type')
     .sum({ total: 'amount_cny' })
@@ -38,9 +36,12 @@ async function monthlySummary(req, month) {
   return { income, expense, recordCount }
 }
 
+export function createReportsRouter({ dbClient = db, createToken = uuid } = {}) {
+  const router = Router()
+
 router.get('/monthly', async (req, res) => {
   const month = req.query.month || new Date().toISOString().slice(0, 7)
-  const stats = await monthlySummary(req, month)
+  const stats = await monthlySummary(dbClient, req, month)
   res.json({
     success: true,
     data: {
@@ -55,7 +56,7 @@ router.get('/monthly', async (req, res) => {
 
 router.get('/category', async (req, res) => {
   const month = req.query.month || new Date().toISOString().slice(0, 7)
-  const categories = await scopedRecords(req)
+  const categories = await scopedRecords(dbClient, req)
     .where('type', 'expense')
     .whereRaw('DATE_FORMAT(date, "%Y-%m") = ?', [month])
     .select('category')
@@ -68,11 +69,11 @@ router.get('/category', async (req, res) => {
 
 router.get('/trend', async (req, res) => {
   const months = Number(req.query.months) || 6
-  const trends = await scopedRecords(req)
+  const trends = await scopedRecords(dbClient, req)
     .whereRaw('date >= DATE_SUB(CURDATE(), INTERVAL ? MONTH)', [months])
-    .select(db.raw('DATE_FORMAT(date, "%Y-%m") as month'))
-    .sum({ income: db.raw("CASE WHEN type='income' THEN amount_cny ELSE 0 END") })
-    .sum({ expense: db.raw("CASE WHEN type='expense' THEN amount_cny ELSE 0 END") })
+    .select(dbClient.raw('DATE_FORMAT(date, "%Y-%m") as month'))
+    .sum({ income: dbClient.raw("CASE WHEN type='income' THEN amount_cny ELSE 0 END") })
+    .sum({ expense: dbClient.raw("CASE WHEN type='expense' THEN amount_cny ELSE 0 END") })
     .groupBy('month')
     .orderBy('month')
   res.json({ success: true, data: trends })
@@ -80,7 +81,7 @@ router.get('/trend', async (req, res) => {
 
 router.get('/today', async (req, res) => {
   const today = new Date().toISOString().slice(0, 10)
-  const row = await scopedRecords(req)
+  const row = await scopedRecords(dbClient, req)
     .where({ date: today, type: 'expense' })
     .sum({ total: 'amount_cny' })
     .count({ count: '*' })
@@ -97,11 +98,11 @@ router.get('/timerange', async (req, res) => {
   const fromDate = from.toISOString().slice(0, 10)
   const toDate = today.toISOString().slice(0, 10)
 
-  const rows = await scopedRecords(req)
+  const rows = await scopedRecords(dbClient, req)
     .whereBetween('date', [fromDate, toDate])
-    .select(db.raw('DATE_FORMAT(date, "%Y-%m-%d") as label'))
-    .sum({ income: db.raw("CASE WHEN type='income' THEN amount_cny ELSE 0 END") })
-    .sum({ expense: db.raw("CASE WHEN type='expense' THEN amount_cny ELSE 0 END") })
+    .select(dbClient.raw('DATE_FORMAT(date, "%Y-%m-%d") as label'))
+    .sum({ income: dbClient.raw("CASE WHEN type='income' THEN amount_cny ELSE 0 END") })
+    .sum({ expense: dbClient.raw("CASE WHEN type='expense' THEN amount_cny ELSE 0 END") })
     .groupBy('label')
     .orderBy('label')
 
@@ -116,26 +117,26 @@ router.get('/timerange', async (req, res) => {
 
 router.get('/summary', authMiddleware, async (req, res) => {
   const periodValue = req.query.periodValue || new Date().toISOString().slice(0, 7)
-  const stats = await monthlySummary(req, periodValue)
+  const stats = await monthlySummary(dbClient, req, periodValue)
   res.json({ success: true, data: { periodType: req.query.periodType || 'month', periodValue, ...stats } })
 })
 
 router.post('/generate', authMiddleware, async (req, res) => {
   const { periodType = 'month', periodValue = new Date().toISOString().slice(0, 7), ledgerId } = req.body
-  const row = await db('reports')
+  const row = await dbClient('reports')
     .where({ user_id: req.userId, source: 'manual' })
     .whereRaw('DATE(generated_at) = CURDATE()')
     .count({ count: '*' })
     .first()
   if (Number(row?.count || 0) >= 5) return res.status(429).json({ success: false, error: '今日手动生成次数已达上限(5)' })
 
-  const report = await monthlySummary(req, periodValue)
-  const [reportId] = await db('reports').insert({ user_id: req.userId, ledger_id: ledgerId ? Number(ledgerId) : null, period_type: periodType, period_value: periodValue, source: 'manual', summary_json: JSON.stringify(report) })
+  const report = await monthlySummary(dbClient, req, periodValue)
+  const [reportId] = await dbClient('reports').insert({ user_id: req.userId, ledger_id: ledgerId ? Number(ledgerId) : null, period_type: periodType, period_value: periodValue, source: 'manual', summary_json: JSON.stringify(report) })
   res.json({ success: true, data: { reportId } })
 })
 
 router.get('/history', authMiddleware, async (req, res) => {
-  const reports = await db('reports')
+  const reports = await dbClient('reports')
     .select('id', 'period_type', 'period_value', 'source', 'generated_at')
     .where({ user_id: req.userId })
     .orderBy('generated_at', 'desc')
@@ -144,10 +145,17 @@ router.get('/history', authMiddleware, async (req, res) => {
 })
 
 router.post('/share/:id', authMiddleware, async (req, res) => {
-  const token = uuid()
+  const reportId = Number(req.params.id)
+  const report = await dbClient('reports').where({ id: reportId, user_id: req.userId }).first()
+  if (!report) return res.status(404).json({ success: false, error: '报表不存在' })
+
+  const token = createToken()
   const exp = new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 19).replace('T', ' ')
-  await db('report_shares').insert({ report_id: req.params.id, token, expire_at: exp })
+  await dbClient('report_shares').insert({ report_id: reportId, token, expire_at: exp })
   res.json({ success: true, data: { url: `${req.protocol}://${req.get('host')}/api/share/${token}` } })
 })
 
-export default router
+  return router
+}
+
+export default createReportsRouter()
