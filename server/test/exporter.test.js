@@ -54,6 +54,22 @@ test('buildImageBuffer creates png buffer', () => {
   assert.deepEqual([...buffer.subarray(0, 4)], [0x89, 0x50, 0x4e, 0x47])
 })
 
+test('buildImageBuffer registers the bundled Chinese font', () => {
+  const calls = []
+  const registerFontFn = (...args) => calls.push(args)
+  const buffer = buildImageBuffer(report, { registerFontFn })
+
+  assert.equal(calls.length, 1)
+  assert.match(calls[0][0], /NotoSansSC-Regular\.otf$/)
+  assert.deepEqual(calls[0][1], { family: 'SmartFinanceCJK' })
+  assert.deepEqual([...buffer.subarray(0, 4)], [0x89, 0x50, 0x4e, 0x47])
+})
+
+test('buildImageBuffer throws when the Chinese font is missing', () => {
+  const fontPath = fileURLToPath(new URL('./missing-font.otf', import.meta.url))
+  assert.throws(() => buildImageBuffer(report, { fontPath }), /缺少中文字体文件/)
+})
+
 test('makeShareQr creates png qr buffer', async () => {
   const buffer = await makeShareQr('http://localhost/share/token')
   assert.ok(Buffer.isBuffer(buffer))

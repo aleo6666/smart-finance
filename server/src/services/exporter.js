@@ -1,13 +1,14 @@
 import ExcelJS from 'exceljs'
 import PDFDocument from 'pdfkit'
-import { createCanvas } from 'canvas'
+import { createCanvas, registerFont } from 'canvas'
 import QRCode from 'qrcode'
 import { existsSync } from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const defaultPdfFontPath = path.join(__dirname, '..', 'assets', 'NotoSansSC-Regular.otf')
+const defaultCjkFontPath = path.join(__dirname, '..', 'assets', 'NotoSansSC-Regular.otf')
+let defaultImageFontRegistered = false
 
 function recordAmount(record) {
   return Number(record.amount_cny ?? record.amount ?? 0)
@@ -43,7 +44,7 @@ export async function buildExcelBuffer(report) {
   return Buffer.from(await workbook.xlsx.writeBuffer())
 }
 
-export function buildPdfBuffer(report, { fontPath = defaultPdfFontPath } = {}) {
+export function buildPdfBuffer(report, { fontPath = defaultCjkFontPath } = {}) {
   if (!existsSync(fontPath)) {
     return Promise.reject(new Error(`缺少中文字体文件: ${fontPath}`))
   }
@@ -75,20 +76,33 @@ export function buildPdfBuffer(report, { fontPath = defaultPdfFontPath } = {}) {
   })
 }
 
-export function buildImageBuffer(report) {
+export function buildImageBuffer(report, {
+  fontPath = defaultCjkFontPath,
+  registerFontFn = registerFont
+} = {}) {
+  if (!existsSync(fontPath)) {
+    throw new Error(`缺少中文字体文件: ${fontPath}`)
+  }
+
+  const usesDefaultRegistration = fontPath === defaultCjkFontPath && registerFontFn === registerFont
+  if (!usesDefaultRegistration || !defaultImageFontRegistered) {
+    registerFontFn(fontPath, { family: 'SmartFinanceCJK' })
+    if (usesDefaultRegistration) defaultImageFontRegistered = true
+  }
+
   const canvas = createCanvas(750, 1000)
   const ctx = canvas.getContext('2d')
   ctx.fillStyle = '#ffffff'
   ctx.fillRect(0, 0, 750, 1000)
 
   ctx.fillStyle = '#111827'
-  ctx.font = '30px sans-serif'
+  ctx.font = '30px "SmartFinanceCJK"'
   ctx.fillText('Smart Finance Report', 30, 60)
-  ctx.font = '24px sans-serif'
+  ctx.font = '24px "SmartFinanceCJK"'
   ctx.fillText(`Income ${report.income}  Expense ${report.expense}`, 30, 115)
   ctx.fillText(`Balance ${report.balance}`, 30, 155)
 
-  ctx.font = '20px sans-serif'
+  ctx.font = '20px "SmartFinanceCJK"'
   let y = 220
   for (const item of (report.byCategory || []).slice(0, 20)) {
     ctx.fillText(`${item.category}: ${item.total}`, 30, y)
