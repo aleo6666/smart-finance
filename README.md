@@ -1,4 +1,3 @@
-
 智能个人财务记账助手
 
 项目简介
@@ -25,31 +24,56 @@
 
 理财新手小张：希望建立理财习惯，学习投资知识，避免冲动消费。
 
-技术栈
+## 本地一键运行 (Phase 10)
 
+### 前置条件
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows)
+- [LM Studio](https://lmstudio.ai/) 已安装以下模型：
+  - `qwen3.6-35b-a3b` (对话模型)
+  - `text-embedding-nomic-embed-text-v1.5` (Embedding 模型)
+- PowerShell 7
 
-前端	Vue 3 + Vite  
+### 启动
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-local.ps1
+```
 
-   后端	Node.js + Express
-   
-   AI能力	Claude API / OpenAI API
-   
-   对话框架	LangChain
-   
-   数据存储	SQLite
-   
-   可视化	ECharts
-   
-   部署	Vercel / Netlify
+启动后访问：
+- 前端: http://localhost
+- 后端: http://localhost:3000
+- 健康检查: http://localhost:3000/api/health/ready
 
-项目特色
+### 停止
+```powershell
+# 停止容器（保留数据）
+.\scripts\stop-local.ps1
 
-AI-Native设计：对话即操作，无需表单输入。
+# 停止并清理数据卷
+.\scripts\stop-local.ps1 -Clean
+```
+
+### 架构
+- **SQL 优先**: 精确统计查询走 MySQL
+- **RAG 建议**: 语义建议类问题通过 Qdrant 检索 + Qwen 生成回答
+- **降级安全**: LM Studio 或 Qdrant 不可用时精确查询继续可用
+
+### 重建向量索引
+```bash
+docker compose exec backend npm run reindex:rag
+```
+
+### 排错
+- **LM Studio 模型缺失**: 在 LM Studio 中搜索安装 `qwen3.6-35b-a3b` 和 `text-embedding-nomic-embed-text-v1.5`
+- **端口 1234 被占用**: 确保 LM Studio 已通过脚本启动（不要单独启动 LM Studio Server）
+- **维度不匹配**: 删除 Qdrant 数据卷后重新启动 (`.\scripts\stop-local.ps1 -Clean`)
+- **Docker 服务不健康**: `docker compose --env-file .env.local ps`
+
+## 项目特色
+
+AI-Native设计：对话即操作
 
 长期记忆机制：系统记住用户习惯，提供个性化服务。
 
 主动服务：像真人顾问一样推送提醒与分析。
 
 跨学科融合：结合会计与软件工程，提供专业理财建议。
-
-极简体验：无需注册登录，打开即用。

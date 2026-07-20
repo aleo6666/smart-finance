@@ -8,7 +8,8 @@
     "start": "node src/index.js",
     "test": "node --test",
     "migrate:sqlite": "node src/scripts/migrate-sqlite-to-mysql.js",
-    "reindex:rag": "node src/scripts/reindex-rag.js"
+    "reindex:rag": "node src/scripts/reindex-rag.js",
+    "smoke:local": "node src/scripts/smoke-local.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
