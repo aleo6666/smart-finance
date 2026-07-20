@@ -98,20 +98,35 @@ router.get('/timerange', async (req, res) => {
   const fromDate = from.toISOString().slice(0, 10)
   const toDate = today.toISOString().slice(0, 10)
 
-  const rows = await scopedRecords(dbClient, req)
-    .whereBetween('date', [fromDate, toDate])
-    .select(dbClient.raw('DATE_FORMAT(date, "%Y-%m-%d") as label'))
-    .sum({ income: dbClient.raw("CASE WHEN type='income' THEN amount_cny ELSE 0 END") })
-    .sum({ expense: dbClient.raw("CASE WHEN type='expense' THEN amount_cny ELSE 0 END") })
-    .groupBy('label')
-    .orderBy('label')
+  const [trendRows, categoryRows, countRow] = await Promise.all([
+    scopedRecords(dbClient, req)
+      .whereBetween('date', [fromDate, toDate])
+      .select(dbClient.raw('DATE_FORMAT(date, "%Y-%m-%d") as label'))
+      .sum({ income: dbClient.raw("CASE WHEN type='income' THEN amount_cny ELSE 0 END") })
+      .sum({ expense: dbClient.raw("CASE WHEN type='expense' THEN amount_cny ELSE 0 END") })
+      .groupBy('label')
+      .orderBy('label'),
+    scopedRecords(dbClient, req)
+      .whereBetween('date', [fromDate, toDate])
+      .where('type', 'expense')
+      .select('category')
+      .sum({ total: 'amount_cny' })
+      .count({ count: '*' })
+      .groupBy('category')
+      .orderBy('total', 'desc'),
+    scopedRecords(dbClient, req)
+      .whereBetween('date', [fromDate, toDate])
+      .count({ count: '*' })
+      .first()
+  ])
 
-  const income = rows.reduce((sum, row) => sum + Number(row.income || 0), 0)
-  const expense = rows.reduce((sum, row) => sum + Number(row.expense || 0), 0)
+  const income = trendRows.reduce((sum, row) => sum + Number(row.income || 0), 0)
+  const expense = trendRows.reduce((sum, row) => sum + Number(row.expense || 0), 0)
+  const recordCount = Number(countRow?.count || 0)
 
   res.json({
     success: true,
-    data: { period, fromDate, toDate, income, expense, balance: income - expense, count: rows.length, savingsRate: income > 0 ? ((income - expense) / income * 100).toFixed(1) : 0, trends: rows, categories: [] }
+    data: { period, fromDate, toDate, income, expense, balance: income - expense, count: recordCount, savingsRate: income > 0 ? ((income - expense) / income * 100).toFixed(1) : 0, trends: trendRows, categories: categoryRows }
   })
 })
 
