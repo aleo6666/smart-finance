@@ -48,19 +48,28 @@ export async function recordFromPlannerTask({
     const recordInput = normalizeRecord(task.payload)
     const saved = await repository.insertRecord(recordInput)
 
-    await vectorMemory.embedRecord(saved)
+    let vectorIndexed = true
+    try {
+      await vectorMemory.embedRecord(saved)
+    } catch (error) {
+      console.warn(`[Recorder] vector embed skipped for record id=${saved.id}: ${error.message}`)
+      vectorIndexed = false
+    }
+
     const monitorResult = await monitorAgent.checkBudgetAfterRecord({ record: saved })
     await observeService.recordAgentEvent({
       userId: saved.user_id,
       callType: 'record',
       latencyMs: Date.now() - started,
-      status: 'succeeded'
+      status: 'succeeded',
+      vectorIndexed
     })
 
     return {
       recordIds: [saved.id],
       summary: `recorded ${saved.amount}`,
-      monitor: monitorResult
+      monitor: monitorResult,
+      vectorIndexed
     }
   } catch (error) {
     await observeService.recordAgentEvent({

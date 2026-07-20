@@ -3,7 +3,7 @@ import db from '../db.js'
 import { getLatestRate } from '../services/exchangeRate.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { scanReceipt } from '../services/vision.js'
-import { embedRecord } from '../services/vectorMemory.js'
+import * as defaultVectorMemory from '../services/vectorMemory.js'
 import { checkBudgetAfterRecord } from '../services/monitorAgent.js'
 import {
   saveOcrSession,
@@ -25,7 +25,8 @@ export function createRecordsRouter({
   dbClient = db,
   scanReceiptFn = scanReceipt,
   ocrSessionService = { saveOcrSession, readOcrSession, clearOcrSession },
-  ocrConfirmService = { saveConfirmedOcrRecords }
+  ocrConfirmService = { saveConfirmedOcrRecords },
+  vectorMemory = defaultVectorMemory
 } = {}) {
   const router = Router()
   router.use(authMiddleware)
@@ -77,7 +78,7 @@ export function createRecordsRouter({
     })
 
     const record = await fetchRecord(id, req.userId)
-    await embedRecord(record).catch(error => console.warn('[Vector] embed skipped:', error.message))
+    vectorMemory.embedRecord(record).catch(error => console.warn('[Vector] embed skipped for record id=' + id + ':', error.message))
     await checkBudgetAfterRecord({ record }).catch(error => console.warn('[Monitor] skipped:', error.message))
     res.json({ success: true, data: record })
   })
@@ -104,13 +105,16 @@ export function createRecordsRouter({
       member: member !== undefined ? (member || null) : rec.member
     })
 
-    res.json({ success: true, data: await fetchRecord(req.params.id, req.userId) })
+    const updated = await fetchRecord(req.params.id, req.userId)
+    vectorMemory.embedRecord(updated).catch(error => console.warn('[Vector] re-index skipped for record id=' + req.params.id + ':', error.message))
+    res.json({ success: true, data: updated })
   })
 
   router.delete('/:id', async (req, res) => {
     const rec = await fetchRecord(req.params.id, req.userId)
     if (!rec) return res.status(404).json({ success: false, error: '记录不存在' })
     await dbClient('records').where({ id: req.params.id, user_id: req.userId }).delete()
+    vectorMemory.deleteRecordVector(req.params.id).catch(error => console.warn('[Vector] delete skipped for record id=' + req.params.id + ':', error.message))
     res.json({ success: true })
   })
 

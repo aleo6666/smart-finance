@@ -48,9 +48,42 @@ test('recordFromPlannerTask inserts record and embeds vector', async () => {
   })
 
   assert.equal(result.recordIds[0], 42)
+  assert.equal(result.vectorIndexed, true)
   assert.equal(inserted[0].device_id, 'user-3')
   assert.equal(inserted[0].amount_cny, 25)
   assert.equal(embedded[0].id, 42)
   assert.equal(monitored[0].record.id, 42)
   assert.equal(observed[0].status, 'succeeded')
+  assert.equal(observed[0].vectorIndexed, true)
+})
+
+test('recordFromPlannerTask returns recordId and vectorIndexed false when embedRecord throws', async () => {
+  const observed = []
+  const repository = {
+    async insertRecord(record) {
+      return { ...record, id: 99 }
+    }
+  }
+
+  const result = await recordFromPlannerTask({
+    task: {
+      taskId: 'task-2',
+      payload: {
+        userId: 3,
+        deviceId: 'user-3',
+        record: { type: 'expense', amount: 50, category: '交通', description: '打车', date: '2026-07-18' }
+      }
+    },
+    repository,
+    vectorMemory: {
+      embedRecord: async () => { throw new Error('LM Studio unreachable') }
+    },
+    monitorAgent: { checkBudgetAfterRecord: async () => ({}) },
+    observeService: { recordAgentEvent: async event => observed.push(event) }
+  })
+
+  assert.equal(result.recordIds[0], 99)
+  assert.equal(result.vectorIndexed, false)
+  assert.equal(observed[0].status, 'succeeded')
+  assert.equal(observed[0].vectorIndexed, false)
 })
