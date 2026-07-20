@@ -38,6 +38,11 @@ services:
       - "6333:6333"
     volumes:
       - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "http://localhost:6333/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   backend:
     build:
@@ -45,17 +50,18 @@ services:
       dockerfile: Dockerfile
     container_name: finance-backend
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
       qdrant:
-        condition: service_started
+        condition: service_healthy
     ports:
       - "3000:3000"
     volumes:
-      - ./server/finance.db:/app/finance.db:ro
       - backend_uploads:/app/uploads
     environment:
       NODE_ENV: production
@@ -68,12 +74,20 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       VECTOR_DB_URL: http://qdrant:6333
-      VECTOR_COLLECTION: ${VECTOR_COLLECTION:-finance_records}
-      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      LM_STUDIO_BASE_URL: ${LM_STUDIO_BASE_URL:-http://host.docker.internal:1234/v1}
+      LM_STUDIO_CHAT_MODEL: ${LM_STUDIO_CHAT_MODEL:-qwen3.6-35b-a3b}
+      LM_STUDIO_EMBEDDING_MODEL: ${LM_STUDIO_EMBEDDING_MODEL:-text-embedding-nomic-embed-text-v1.5}
+      LM_STUDIO_EMBEDDING_TIMEOUT_MS: ${LM_STUDIO_EMBEDDING_TIMEOUT_MS:-10000}
+      LM_STUDIO_CHAT_TIMEOUT_MS: ${LM_STUDIO_CHAT_TIMEOUT_MS:-120000}
+      LM_STUDIO_LIST_MODELS_TIMEOUT_MS: ${LM_STUDIO_LIST_MODELS_TIMEOUT_MS:-5000}
+      RAG_ENABLED: ${RAG_ENABLED:-true}
+      RAG_COLLECTION: ${RAG_COLLECTION:-finance_records_nomic_v1}
+      RAG_TOP_K: ${RAG_TOP_K:-5}
+      RAG_MAX_CONTEXT_CHARS: ${RAG_MAX_CONTEXT_CHARS:-6000}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ZHIPU_API_KEY: ${ZHIPU_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_SECRET: ${JWT_SECRET:-}
       UPLOADS_DIR: /app/uploads
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
