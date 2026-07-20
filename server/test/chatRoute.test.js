@@ -321,3 +321,207 @@ test('POST /api/chat appends context after record intent succeeds', async () => 
     server.close()
   }
 })
+
+test('POST /api/chat never calls RAG when finance SQL summary is available', async () => {
+  let ragCalled = false
+  const app = express()
+  app.use(express.json())
+  app.use((req, _res, next) => {
+    req.deviceId = 'device-1'
+    next()
+  })
+  app.use('/api/chat', createChatRouter({
+    getUserId: () => 7,
+    processMessage: async () => ({ intent: 'query', message: '我可以帮你查看消费统计。', data: null }),
+    getConversationContext: async () => [],
+    appendConversationMessage: async () => {},
+    retrieveSimilar: async () => [],
+    queryFinanceSummary: async () => ({
+      hints: { month: '2026-07', category: '餐饮' },
+      count: 3,
+      total: 150,
+      average: 50,
+      records: []
+    }),
+    ragService: {
+      answer: async () => { ragCalled = true; return { message: '', sources: [], records: 0 } }
+    }
+  }))
+
+  const { server, url } = await listen(app)
+  try {
+    const response = await fetch(`${url}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: '本月餐饮花了多少' })
+    })
+    const json = await response.json()
+
+    assert.equal(response.status, 200)
+    assert.equal(json.success, true)
+    assert.equal(ragCalled, false, 'RAG must not be called when SQL summary exists')
+    assert.equal(json.data.finance.count, 3)
+  } finally {
+    server.close()
+  }
+})
+
+test('POST /api/chat calls RAG for advice and exposes data.rag', async () => {
+  const ragCalls = []
+  const app = express()
+  app.use(express.json())
+  app.use((req, _res, next) => {
+    req.deviceId = 'device-1'
+    next()
+  })
+  app.use('/api/chat', createChatRouter({
+    getUserId: () => 7,
+    processMessage: async () => ({ intent: 'advice', message: '根据你的记录，建议...', data: null }),
+    getConversationContext: async () => [],
+    appendConversationMessage: async () => {},
+    retrieveSimilar: async () => [],
+    queryFinanceSummary: async () => null,
+    ragService: {
+      answer: async ({ question, userId }) => {
+        ragCalls.push({ question, userId })
+        return { message: '根据相关记录，建议先控制餐饮频率。', sources: [12], records: 1 }
+      }
+    }
+  }))
+
+  const { server, url } = await listen(app)
+  try {
+    const response = await fetch(`${url}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: '怎么减少日常开销？' })
+    })
+    const json = await response.json()
+
+    assert.equal(response.status, 200)
+    assert.equal(json.success, true)
+    assert.equal(ragCalls.length, 1)
+    assert.equal(ragCalls[0].userId, 7)
+    assert.equal(json.data.message, '根据相关记录，建议先控制餐饮频率。')
+    assert.deepEqual(json.data.rag, { records: 1, sources: [12] })
+  } finally {
+    server.close()
+  }
+})
+
+test('POST /api/chat never calls RAG for anonymous users', async () => {
+  let ragCalled = false
+  const app = express()
+  app.use(express.json())
+  app.use((req, _res, next) => {
+    req.deviceId = 'device-1'
+    next()
+  })
+  app.use('/api/chat', createChatRouter({
+    getUserId: () => null,
+    processMessage: async () => ({ intent: 'advice', message: '根据你的记录，建议...', data: null }),
+    getConversationContext: async () => [],
+    appendConversationMessage: async () => {},
+    retrieveSimilar: async () => [],
+    ragService: {
+      answer: async () => { ragCalled = true; return { message: '', sources: [], records: 0 } }
+    }
+  }))
+
+  const { server, url } = await listen(app)
+  try {
+    const response = await fetch(`${url}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: '怎么省钱？' })
+    })
+    const json = await response.json()
+
+    assert.equal(response.status, 200)
+    assert.equal(json.success, true)
+    assert.equal(ragCalled, false, 'RAG must not be called for anonymous users')
+  } finally {
+    server.close()
+  }
+})
+
+test('POST /api/chat returns successful response when RAG fails', async () => {
+  const app = express()
+  app.use(express.json())
+  app.use((req, _res, next) => {
+    req.deviceId = 'device-1'
+    next()
+  })
+  app.use('/api/chat', createChatRouter({
+    getUserId: () => 7,
+    processMessage: async () => ({ intent: 'advice', message: '我可以帮你分析消费习惯。', data: null }),
+    getConversationContext: async () => [],
+    appendConversationMessage: async () => {},
+    retrieveSimilar: async () => [
+      { recordId: 1, amount: 50, category: '餐饮', date: '2026-07-18' }
+    ],
+    queryFinanceSummary: async () => null,
+    ragService: {
+      answer: async () => { throw new Error('RAG service error') }
+    }
+  }))
+
+  const { server, url } = await listen(app)
+  try {
+    const response = await fetch(`${url}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: '怎么省钱？' })
+    })
+    const json = await response.json()
+
+    assert.equal(response.status, 200)
+    assert.equal(json.success, true)
+    assert.ok(json.data.message)
+    assert.match(json.data.message, /找到 1 条相关记录/)
+  } finally {
+    server.close()
+  }
+})
+
+test('POST /api/chat calls RAG for query intent when no SQL summary', async () => {
+  const ragCalls = []
+  const app = express()
+  app.use(express.json())
+  app.use((req, _res, next) => {
+    req.deviceId = 'device-1'
+    next()
+  })
+  app.use('/api/chat', createChatRouter({
+    getUserId: () => 7,
+    processMessage: async () => ({ intent: 'query', message: '我可以帮你查看消费统计。', data: null }),
+    getConversationContext: async () => [],
+    appendConversationMessage: async () => {},
+    retrieveSimilar: async () => [],
+    queryFinanceSummary: async () => null,
+    ragService: {
+      answer: async ({ question, userId }) => {
+        ragCalls.push({ question, userId })
+        return { message: '根据语义检索，你的餐饮消费主要集中在午餐时段。', sources: [5, 8], records: 2 }
+      }
+    }
+  }))
+
+  const { server, url } = await listen(app)
+  try {
+    const response = await fetch(`${url}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: '我平时哪些消费最多？' })
+    })
+    const json = await response.json()
+
+    assert.equal(response.status, 200)
+    assert.equal(json.success, true)
+    assert.equal(ragCalls.length, 1)
+    assert.equal(json.data.message, '根据语义检索，你的餐饮消费主要集中在午餐时段。')
+    assert.deepEqual(json.data.rag, { records: 2, sources: [5, 8] })
+  } finally {
+    server.close()
+  }
+})

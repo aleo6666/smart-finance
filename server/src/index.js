@@ -28,7 +28,11 @@ import observeRouter from './routes/observe.js'
 import insightsRouter from './routes/insights.js'
 import datasetsRouter from './routes/datasets.js'
 import { startScheduler } from './services/scheduler.js'
-import { initVectorCollection, VectorDimensionError } from './services/vectorMemory.js'
+import { initVectorCollection, VectorDimensionError, createVectorClient } from './services/vectorMemory.js'
+import defaultLmStudioClient from './services/lmStudioClient.js'
+import getRedisClient from './redis.js'
+import { createDefaultChecks } from './services/healthService.js'
+import { createHealthRouter } from './routes/health.js'
 
 const app = express()
 
@@ -58,9 +62,14 @@ app.use('/api/datasets', datasetsRouter)
 const uploadsDir = process.env.UPLOADS_DIR || 'uploads'
 app.use('/uploads', express.static(uploadsDir))
 
-app.get('/api/health', (_req, res) => {
-  res.json({ success: true, message: '智能财务记账助手服务运行中' })
-})
+app.use('/api/health', createHealthRouter({
+  createChecks: () => createDefaultChecks({
+    db,
+    redis: getRedisClient(),
+    qdrantClient: createVectorClient(),
+    lmStudioClient: defaultLmStudioClient
+  })
+}))
 
 export async function bootstrap() {
   await ensureSchema(db)

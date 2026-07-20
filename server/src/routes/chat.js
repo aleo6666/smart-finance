@@ -39,7 +39,8 @@ export function createChatRouter({
   getConversationContext = defaultGetConversationContext,
   appendConversationMessage = defaultAppendConversationMessage,
   retrieveSimilar = defaultRetrieveSimilar,
-  queryFinanceSummary = defaultQueryFinanceSummary
+  queryFinanceSummary = defaultQueryFinanceSummary,
+  ragService = null
 } = {}) {
   const router = Router()
 
@@ -110,11 +111,29 @@ export function createChatRouter({
             hints: financeSummary.hints
           }
         } else {
-          result.message = buildMemoryReply({
-            intent: result.intent,
-            baseMessage: result.message,
-            records
-          })
+          let ragUsed = false
+          if (userId && (result.intent === 'advice' || result.intent === 'query') && ragService) {
+            try {
+              const ragResult = await ragService.answer({
+                question: message,
+                userId,
+                hints,
+                baseMessage: result.message
+              })
+              result.message = ragResult.message
+              result.rag = { records: ragResult.records, sources: ragResult.sources }
+              ragUsed = true
+            } catch (error) {
+              console.warn('[Chat] RAG answer skipped:', error.message)
+            }
+          }
+          if (!ragUsed) {
+            result.message = buildMemoryReply({
+              intent: result.intent,
+              baseMessage: result.message,
+              records
+            })
+          }
         }
         result.memory = {
           records: records.length,
