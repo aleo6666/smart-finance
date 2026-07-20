@@ -28,7 +28,7 @@ import observeRouter from './routes/observe.js'
 import insightsRouter from './routes/insights.js'
 import datasetsRouter from './routes/datasets.js'
 import { startScheduler } from './services/scheduler.js'
-import { initVectorCollection } from './services/vectorMemory.js'
+import { initVectorCollection, VectorDimensionError } from './services/vectorMemory.js'
 
 const app = express()
 
@@ -64,7 +64,13 @@ app.get('/api/health', (_req, res) => {
 
 export async function bootstrap() {
   await ensureSchema(db)
-  await initVectorCollection().catch(error => console.warn('[Vector] init skipped:', error.message))
+  await initVectorCollection().catch(error => {
+    if (error instanceof VectorDimensionError) {
+      console.error('[Vector] 维度不匹配，请使用 reindex:rag 重建或删除旧集合后重试:', error.message)
+    } else {
+      console.warn('[Vector] init skipped:', error.message)
+    }
+  })
 
   return app.listen(config.server.port, '0.0.0.0', () => {
     console.log(`Smart Finance API started: http://localhost:${config.server.port}`)

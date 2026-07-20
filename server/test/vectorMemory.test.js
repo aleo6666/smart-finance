@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createDeterministicEmbedding, embedRecord, recordToTextBlock, retrieveSimilar } from '../src/services/vectorMemory.js'
+import { createDeterministicEmbedding, embedRecord, recordToTextBlock, retrieveSimilar, initVectorCollection, VectorDimensionError, deleteRecordVector } from '../src/services/vectorMemory.js'
 
 test('createDeterministicEmbedding returns stable fixed-size vectors', () => {
   const first = createDeterministicEmbedding('lunch 25', 16)
@@ -110,4 +110,101 @@ test('embedRecord upserts record payload to vector client', async () => {
   assert.equal(calls[0].payload.points[0].vector.length, 8)
   assert.equal(calls[0].payload.points[0].payload.recordId, 9)
   assert.match(recordToTextBlock(record), /午饭/)
+})
+
+test('initVectorCollection probes embedding size and creates versioned collection', async () => {
+  const calls = []
+  const client = {
+    getCollections: async () => ({ collections: [] }),
+    createCollection: async (name, body) => calls.push({ name, body })
+  }
+  const result = await initVectorCollection({
+    client,
+    collection: 'finance_records_nomic_v1',
+    embeddingClient: { embed: async text => { assert.equal(text, '维度探针'); return [0.1, 0.2, 0.3] } }
+  })
+  assert.equal(result.size, 3)
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].name, 'finance_records_nomic_v1')
+  assert.deepEqual(calls[0].body, { vectors: { size: 3, distance: 'Cosine' } })
+})
+
+test('initVectorCollection returns existing size when collection exists with matching dimensions', async () => {
+  const client = {
+    getCollections: async () => ({ collections: [{ name: 'finance_records_nomic_v1' }] }),
+    getCollection: async (name) => ({
+      config: { params: { vectors: { size: 3 } } }
+    }),
+    createCollection: async () => { throw new Error('should not recreate') }
+  }
+  const result = await initVectorCollection({
+    client,
+    collection: 'finance_records_nomic_v1',
+    embeddingClient: { embed: async () => [0.1, 0.2, 0.3] }
+  })
+  assert.equal(result.size, 3)
+})
+
+test('initVectorCollection throws VectorDimensionError on dimension mismatch', async () => {
+  const client = {
+    getCollections: async () => ({ collections: [{ name: 'finance_records_nomic_v1' }] }),
+    getCollection: async (name) => ({
+      config: { params: { vectors: { size: 768 } } }
+    }),
+    createCollection: async () => { throw new Error('should not create') }
+  }
+  await assert.rejects(
+    () => initVectorCollection({
+      client,
+      collection: 'finance_records_nomic_v1',
+      embeddingClient: { embed: async () => [0.1, 0.2, 0.3] }
+    }),
+    (err) => {
+      assert.ok(err instanceof VectorDimensionError)
+      assert.match(err.message, /768.*3|3.*768/)
+      return true
+    }
+  )
+})
+
+test('retrieveSimilar includes ledgerId and type in filter', async () => {
+  const calls = []
+  const client = {
+    async search(collection, payload) {
+      calls.push({ collection, payload })
+      return []
+    }
+  }
+
+  await retrieveSimilar('超市消费', {
+    userId: 7,
+    ledgerId: '42',
+    type: 'expense',
+    client,
+    getEmbedding: async () => [0.1]
+  })
+
+  assert.equal(calls.length, 1)
+  const must = calls[0].payload.filter.must
+  assert.deepEqual(must, [
+    { key: 'userId', match: { value: 7 } },
+    { key: 'ledgerId', match: { value: '42' } },
+    { key: 'type', match: { value: 'expense' } }
+  ])
+})
+
+test('deleteRecordVector calls client.delete with the right point ID', async () => {
+  const calls = []
+  const client = {
+    delete: async (collection, params) => calls.push({ collection, params })
+  }
+
+  await deleteRecordVector(99, {
+    client,
+    collection: 'finance_records_nomic_v1'
+  })
+
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].collection, 'finance_records_nomic_v1')
+  assert.deepEqual(calls[0].params, { points: [99] })
 })

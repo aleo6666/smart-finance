@@ -99,7 +99,7 @@ export function createChatRouter({
           ? await queryFinanceSafely(userId, hints)
           : null
         const records = userId
-          ? await retrieveSimilarSafely(message, { userId, ...hints, limit: 5 })
+          ? await retrieveSimilarSafely(message, { userId, ...hints, limit: config.rag.topK })
           : []
         if (financeSummary) {
           result.message = buildFinanceQueryReply(financeSummary)

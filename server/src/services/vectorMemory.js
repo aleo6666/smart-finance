@@ -1,6 +1,14 @@
 import { createHash } from 'crypto'
 import { QdrantClient } from '@qdrant/js-client-rest'
 import config from '../config.js'
+import defaultLmStudioClient from './lmStudioClient.js'
+
+export class VectorDimensionError extends Error {
+  constructor(expected, actual) {
+    super(`向量集合维度不匹配：集合=${expected}，模型=${actual}`)
+    this.name = 'VectorDimensionError'
+  }
+}
 
 export function createDeterministicEmbedding(text, size = 1536) {
   const vector = []
@@ -34,46 +42,39 @@ export function createVectorClient() {
   return new QdrantClient({ url: config.vector.url })
 }
 
-export async function getEmbedding(text, { fetchImpl = fetch } = {}) {
-  if (!config.ai.openaiApiKey) return createDeterministicEmbedding(text)
-
-  const response = await fetchImpl('https://api.openai.com/v1/embeddings', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${config.ai.openaiApiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: config.ai.embeddingModel,
-      input: text
-    })
-  })
-
-  if (!response.ok) {
-    throw new Error(`OpenAI embedding failed: ${response.status}`)
-  }
-
-  const json = await response.json()
-  return json.data?.[0]?.embedding || createDeterministicEmbedding(text)
+export async function getEmbedding(text, { embeddingClient = defaultLmStudioClient } = {}) {
+  return embeddingClient.embed(text)
 }
 
 export async function initVectorCollection({
   client = createVectorClient(),
-  collection = config.vector.collection,
-  size = 1536
+  collection = config.rag.collection,
+  embeddingClient = defaultLmStudioClient
 } = {}) {
+  const probeVector = await embeddingClient.embed('维度探针')
+  const size = probeVector.length
+
   const collections = await client.getCollections()
   const exists = collections.collections?.some(item => item.name === collection)
-  if (!exists) {
-    await client.createCollection(collection, {
-      vectors: { size, distance: 'Cosine' }
-    })
+
+  if (exists) {
+    const collectionInfo = await client.getCollection(collection)
+    const existingSize = collectionInfo.config?.params?.vectors?.size
+    if (existingSize !== undefined && existingSize !== size) {
+      throw new VectorDimensionError(existingSize, size)
+    }
+    return { size: existingSize !== undefined ? existingSize : size }
   }
+
+  await client.createCollection(collection, {
+    vectors: { size, distance: 'Cosine' }
+  })
+  return { size }
 }
 
 export async function embedRecord(record, {
   client = createVectorClient(),
-  collection = config.vector.collection,
+  collection = config.rag.collection,
   getEmbedding: embeddingFn = getEmbedding
 } = {}) {
   const textBlock = recordToTextBlock(record)
@@ -99,10 +100,12 @@ export async function embedRecord(record, {
   })
 }
 
-function createMatchFilter({ userId, month, category }) {
+function createMatchFilter({ userId, ledgerId, month, category, type }) {
   const must = [{ key: 'userId', match: { value: userId } }]
+  if (ledgerId) must.push({ key: 'ledgerId', match: { value: ledgerId } })
   if (month) must.push({ key: 'month', match: { value: month } })
   if (category) must.push({ key: 'category', match: { value: category } })
+  if (type) must.push({ key: 'type', match: { value: type } })
   return { must }
 }
 
@@ -121,11 +124,13 @@ function mapSearchResult(item) {
 
 export async function retrieveSimilar(query, {
   userId,
+  ledgerId,
   month,
   category,
-  limit = 5,
+  type,
+  limit = config.rag.topK,
   client = createVectorClient(),
-  collection = config.vector.collection,
+  collection = config.rag.collection,
   getEmbedding: embeddingFn = getEmbedding
 } = {}) {
   if (!userId || !query) return []
@@ -135,11 +140,18 @@ export async function retrieveSimilar(query, {
       vector,
       limit,
       with_payload: true,
-      filter: createMatchFilter({ userId, month, category })
+      filter: createMatchFilter({ userId, ledgerId, month, category, type })
     })
     return (results || []).map(mapSearchResult)
   } catch (error) {
     console.warn('[VectorMemory] retrieve skipped:', error.message)
     return []
   }
+}
+
+export async function deleteRecordVector(recordId, {
+  client = createVectorClient(),
+  collection = config.rag.collection
+} = {}) {
+  await client.delete(collection, { points: [Number(recordId)] })
 }
