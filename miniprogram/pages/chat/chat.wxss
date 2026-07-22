@@ -1,0 +1,25 @@
+.chat-page { display: flex; flex-direction: column; height: 100vh; }
+.msg-list { flex: 1; padding: 24rpx; }
+.msg-left { display: flex; gap: 16rpx; align-items: flex-start; }
+.msg-left .avatar { width: 72rpx; height: 72rpx; border-radius: 50%; background: #eef2ff; display: flex; align-items: center; justify-content: center; font-size: 32rpx; flex-shrink: 0; }
+.bubble-loading { padding: 20rpx 28rpx; background: var(--bg-card); border: 1rpx solid var(--border); border-radius: 28rpx 28rpx 28rpx 8rpx; font-size: 28rpx; color: #64748b; }
+
+.rate-toggle { display: flex; justify-content: space-between; padding: 16rpx 30rpx; background: var(--bg-card); border-top: 1rpx solid var(--border); font-size: 26rpx; color: var(--text-secondary); }
+.rate-toggle:active { background: #f1f5f9; }
+.rate-list { padding: 16rpx 10rpx; background: var(--bg-card); border-top: 1rpx solid var(--border); white-space: nowrap; }
+.rate-card { display: inline-block; background: var(--bg); border-radius: 16rpx; padding: 16rpx 24rpx; margin: 0 10rpx; text-align: center; min-width: 140rpx; }
+.rate-flag { font-size: 36rpx; }
+.rate-name { font-size: 22rpx; color: var(--text-secondary); }
+.rate-value { font-size: 30rpx; font-weight: 700; margin-top: 8rpx; font-variant-numeric: tabular-nums; }
+
+.input-bar { background: var(--bg-card); border-top: 1rpx solid var(--border); padding: 20rpx 24rpx; }
+.input-row { display: flex; gap: 16rpx; align-items: flex-end; }
+.chat-input { flex: 1; border: 1rpx solid var(--border); border-radius: 24rpx; padding: 18rpx 28rpx; font-size: 28rpx; }
+.btn-upload { width: 80rpx; height: 80rpx; border-radius: 50%; border: 1rpx solid var(--border); background: var(--bg); font-size: 36rpx; display: flex; align-items: center; justify-content: center; padding: 0; line-height: 1; }
+.btn-send { width: 80rpx; height: 80rpx; border-radius: 50%; background: var(--primary); color: #fff; font-size: 36rpx; border: none; display: flex; align-items: center; justify-content: center; padding: 0; line-height: 1; }
+.btn-send[disabled] { background: #cbd5e1; }
+
+.quick-actions { display: flex; gap: 12rpx; margin-top: 16rpx; flex-wrap: wrap; justify-content: center; }
+.quick-action { padding: 10rpx 24rpx; background: #f1f5f9; border: 1rpx solid var(--border); border-radius: 40rpx; font-size: 24rpx; color: var(--text-secondary); }
+.quick-action:active { background: #eef2ff; color: var(--primary); }
+.quick-highlight { background: #fef3c7; border-color: var(--warning); color: #92400e; }

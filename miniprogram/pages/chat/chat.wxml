@@ -1,0 +1,53 @@
+<view class="chat-page">
+  <scroll-view class="msg-list" scroll-y scroll-into-view="{{scrollToId}}" scroll-with-animation>
+    <empty-state icon="💬" text="开始记账吧！告诉我你今天花了多少钱~" wx:if="{{messages.length === 0 && !ocrPending}}">
+      <view class="quick-actions">
+        <view class="quick-action" bindtap="sendQuick" data-text="今天午餐花了25元">🍜 午餐25元</view>
+        <view class="quick-action" bindtap="sendQuick" data-text="打车上班花了30元">🚕 打车30元</view>
+        <view class="quick-action" bindtap="sendQuick" data-text="我这个月花了多少钱">📊 本月汇总</view>
+        <view class="quick-action" bindtap="sendQuick" data-text="有什么省钱建议吗">💡 消费建议</view>
+      </view>
+    </empty-state>
+
+    <message-bubble wx:for="{{messages}}" wx:key="index" msg="{{item}}" id="msg-{{index}}" />
+
+    <ocr-confirm wx:if="{{ocrPending}}"
+      records="{{ocrRecords}}"
+      ocrSessionId="{{ocrSessionId}}"
+      saving="{{savingOcr}}"
+      bind:remove="onOcrRemove"
+      bind:cancel="onOcrCancel"
+      bind:confirm="onOcrConfirm" />
+
+    <view class="msg-left" wx:if="{{loading}}">
+      <view class="avatar">🤖</view>
+      <view class="bubble-loading">思考中...</view>
+    </view>
+  </scroll-view>
+
+  <view class="rate-toggle" bindtap="toggleRates">
+    <text>🌍 汇率看板</text>
+    <text>{{showRates ? '▲' : '▼'}}</text>
+  </view>
+  <scroll-view class="rate-list" scroll-x wx:if="{{showRates}}">
+    <view class="rate-card" wx:for="{{rates}}" wx:key="code">
+      <view class="rate-flag">{{item.flag}}</view>
+      <view class="rate-name">{{item.code}}</view>
+      <view class="rate-value">{{item.rateText || '—'}}</view>
+    </view>
+  </scroll-view>
+
+  <view class="input-bar">
+    <view class="input-row">
+      <input class="chat-input" value="{{input}}" placeholder="输入消费记录或问题..." bindinput="onInput" confirm-type="send" bindconfirm="send" adjust-position="{{true}}" />
+      <button class="btn-upload" bindtap="takePhoto">📷</button>
+      <button class="btn-send" bindtap="send" disabled="{{!input || loading}}">↑</button>
+    </view>
+    <view class="quick-actions">
+      <view class="quick-action" bindtap="sendQuick" data-text="今天午餐花了25元">🍜 记账</view>
+      <view class="quick-action" bindtap="sendQuick" data-text="这个月花了多少钱">📊 本月</view>
+      <view class="quick-action" bindtap="sendQuick" data-text="有什么省钱建议吗">💡 建议</view>
+      <view class="quick-action quick-highlight" bindtap="takePhoto">📷 扫小票</view>
+    </view>
+  </view>
+</view>
