@@ -1,0 +1,61 @@
+{
+  "pages": [
+    "pages/chat/chat",
+    "pages/report/report",
+    "pages/goal/goal",
+    "pages/mine/mine",
+    "pages/login/login"
+  ],
+  "subpackages": [
+    {
+      "root": "subpackages/chart",
+      "name": "chart",
+      "pages": ["pages/blank/blank"]
+    }
+  ],
+  "preloadRule": {
+    "pages/report/report": {
+      "network": "all",
+      "packages": ["chart"]
+    }
+  },
+  "window": {
+    "navigationBarTitleText": "智能记账",
+    "navigationBarBackgroundColor": "#4f46e5",
+    "navigationBarTextStyle": "white"
+  },
+  "tabBar": {
+    "color": "#64748b",
+    "selectedColor": "#4f46e5",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/chat/chat",
+        "text": "记账",
+        "iconPath": "images/tab-chat.png",
+        "selectedIconPath": "images/tab-chat-active.png"
+      },
+      {
+        "pagePath": "pages/report/report",
+        "text": "分析",
+        "iconPath": "images/tab-report.png",
+        "selectedIconPath": "images/tab-report-active.png"
+      },
+      {
+        "pagePath": "pages/goal/goal",
+        "text": "目标",
+        "iconPath": "images/tab-goal.png",
+        "selectedIconPath": "images/tab-goal-active.png"
+      },
+      {
+        "pagePath": "pages/mine/mine",
+        "text": "我的",
+        "iconPath": "images/tab-mine.png",
+        "selectedIconPath": "images/tab-mine-active.png"
+      }
+    ]
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}
