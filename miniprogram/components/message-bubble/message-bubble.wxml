@@ -1,0 +1,9 @@
+<view class="msg-wrapper {{msg.role === 'user' ? 'msg-right' : 'msg-left'}}">
+  <view class="avatar">{{msg.role === 'user' ? '😊' : '🤖'}}</view>
+  <view class="msg-content">
+    <view class="bubble {{msg.role === 'user' ? 'bubble-user' : 'bubble-assistant'}}">
+      <text>{{msg.content}}</text>
+    </view>
+    <view class="time">{{msg.time || ''}}</view>
+  </view>
+</view>

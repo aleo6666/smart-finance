@@ -1,0 +1,21 @@
+<view class="ocr-card">
+  <view class="ocr-header">📷 识别到 {{records.length}} 条消费记录</view>
+  <view class="ocr-item" wx:for="{{records}}" wx:key="index">
+    <view class="ocr-row">
+      <input class="ocr-amount" type="digit" value="{{item.amount}}" data-index="{{index}}" data-field="amount" bindinput="onFieldChange" />
+      <picker class="ocr-cat" value="{{categoryIndex}}" range="{{categories}}" data-index="{{index}}" bindchange="onCategoryChange">
+        <view>{{item.category || '分类'}}</view>
+      </picker>
+      <input class="ocr-date" type="text" value="{{item.date}}" data-index="{{index}}" data-field="date" bindinput="onFieldChange" placeholder="YYYY-MM-DD" />
+    </view>
+    <view class="ocr-row">
+      <input class="ocr-merchant" value="{{item.merchant || ''}}" data-index="{{index}}" data-field="merchant" bindinput="onFieldChange" placeholder="商家（选填）" />
+      <input class="ocr-desc" value="{{item.description || ''}}" data-index="{{index}}" data-field="description" bindinput="onFieldChange" placeholder="描述" />
+    </view>
+    <view class="ocr-del" data-index="{{index}}" bindtap="onRemove">✕</view>
+  </view>
+  <view class="ocr-actions">
+    <button class="btn btn-outline btn-sm" bindtap="onCancel">取消</button>
+    <button class="btn btn-primary btn-sm" bindtap="onConfirm" loading="{{saving}}">{{saving ? '保存中...' : '✓ 确认保存 (' + records.length + '条)'}}</button>
+  </view>
+</view>

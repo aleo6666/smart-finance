@@ -1,0 +1,3 @@
+<view class="progress-bar">
+  <view class="progress-fill progress-fill-{{status}}" style="width: {{percent > 100 ? 100 : percent}}%"></view>
+</view>

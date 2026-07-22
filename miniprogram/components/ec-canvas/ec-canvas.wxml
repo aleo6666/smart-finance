@@ -1,0 +1,3 @@
+<view class="ec-container" style="width:100%;height:{{height || '300px'}}">
+  <canvas type="2d" class="ec-canvas" canvas-id="{{canvasId}}"></canvas>
+</view>

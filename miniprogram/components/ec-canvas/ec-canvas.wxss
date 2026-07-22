@@ -1,0 +1,2 @@
+.ec-container { width: 100%; position: relative; }
+.ec-canvas { width: 100%; height: 100%; }

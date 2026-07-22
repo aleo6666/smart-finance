@@ -1,0 +1,4 @@
+.empty-state { text-align: center; padding: 80rpx 40rpx; color: var(--text-secondary); }
+.empty-icon { font-size: 80rpx; margin-bottom: 20rpx; }
+.empty-text { font-size: 28rpx; }
+.empty-sub { font-size: 24rpx; margin-top: 10rpx; }
