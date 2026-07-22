@@ -1,0 +1,8 @@
+# 微信开发者工具生成的私有配置
+project.private.config.json
+
+# 依赖（需手动下载 echarts-for-weixin）
+utils/echarts.min.js
+
+# 本地测试用
+node_modules/
