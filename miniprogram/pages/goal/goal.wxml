@@ -1,0 +1,78 @@
+<scroll-view class="goal-page" scroll-y>
+  <view class="error-banner" wx:if="{{error}}">
+    ⚠️ {{error}}
+    <button class="btn btn-outline btn-sm" bindtap="loadData" style="margin-left:20rpx;">重试</button>
+  </view>
+
+  <view class="empty-state" wx:if="{{loading}}">
+    <view class="empty-icon">⏳</view>
+    <view>加载中...</view>
+  </view>
+
+  <view wx:if="{{!loading && !error}}">
+    <view class="card">
+      <view class="card-title">💰 月度预算</view>
+      <view class="budget-item" wx:for="{{budgets}}" wx:key="id">
+        <view class="flex-between" style="margin-bottom:10rpx;">
+          <text>{{item.category || '总预算'}}</text>
+          <text class="text-sm text-secondary">¥{{item.spentText}} / ¥{{item.amountText}}</text>
+        </view>
+        <progress-bar percent="{{item.percent}}" status="{{item.percent > 80 ? 'danger' : item.percent > 60 ? 'warn' : 'good'}}" />
+      </view>
+      <button class="btn btn-outline btn-sm" bindtap="showBudgetForm" style="margin-top:24rpx;">+ 设置预算</button>
+    </view>
+
+    <view class="flex-between" style="margin-bottom:28rpx;">
+      <view class="card-title" style="margin:0;">🎯 储蓄目标</view>
+      <button class="btn btn-primary btn-sm" bindtap="showGoalForm">+ 新建目标</button>
+    </view>
+
+    <view class="goal-card" wx:for="{{goals}}" wx:key="id">
+      <view class="flex-between" style="margin-bottom:16rpx;">
+        <text class="font-bold">{{item.name}}</text>
+        <text class="text-sm text-secondary">¥{{item.currentText}} / ¥{{item.targetText}}</text>
+      </view>
+      <progress-bar percent="{{item.percent}}" status="{{item.percent >= 100 ? 'good' : 'warn'}}" />
+      <view class="flex-between" style="margin:10rpx 0;">
+        <text class="text-sm text-secondary">进度 {{item.percent}}%</text>
+        <text class="text-sm text-secondary" wx:if="{{item.deadline}}">截止: {{item.deadline}}</text>
+      </view>
+      <view class="flex-row" style="gap:16rpx;">
+        <button class="btn btn-outline btn-sm" bindtap="addProgress" data-id="{{item.id}}">+ 存入</button>
+        <button class="btn btn-outline btn-sm" bindtap="completeGoal" data-id="{{item.id}}" wx:if="{{!item.completed}}">{{item.percent >= 100 ? '✓ 完成' : '标记完成'}}</button>
+        <button class="btn btn-outline btn-sm" bindtap="deleteGoal" data-id="{{item.id}}" style="color:var(--danger);">删除</button>
+      </view>
+    </view>
+    <empty-state wx:if="{{goals.length === 0}}" icon="🎯" text="还没有储蓄目标" subText="设定一个目标，开始你的储蓄计划吧！"></empty-state>
+  </view>
+
+  <!-- New Goal Modal -->
+  <view class="modal-mask" wx:if="{{showGoalModal}}" bindtap="closeGoalModal">
+    <view class="modal" catchtap="">
+      <view class="modal-title">新建储蓄目标</view>
+      <view class="form-group"><view class="form-label">目标名称</view><input class="form-input" value="{{goalForm.name}}" placeholder="如：买新手机" bindinput="onGoalField" data-field="name" /></view>
+      <view class="form-group"><view class="form-label">目标金额 (元)</view><input class="form-input" type="digit" value="{{goalForm.target_amount}}" placeholder="5000" bindinput="onGoalField" data-field="target_amount" /></view>
+      <view class="form-group"><view class="form-label">截止日期</view><input class="form-input" type="text" value="{{goalForm.deadline}}" placeholder="YYYY-MM-DD" bindinput="onGoalField" data-field="deadline" /></view>
+      <view class="modal-actions"><button class="btn btn-outline" bindtap="closeGoalModal">取消</button><button class="btn btn-primary" bindtap="createGoal">确认创建</button></view>
+    </view>
+  </view>
+
+  <!-- Add Progress Modal -->
+  <view class="modal-mask" wx:if="{{showProgressModal}}" bindtap="closeProgressModal">
+    <view class="modal" catchtap="">
+      <view class="modal-title">存入金额 - {{progressGoalName}}</view>
+      <view class="form-group"><view class="form-label">金额 (元)</view><input class="form-input" type="digit" value="{{progressAmount}}" placeholder="500" bindinput="onProgressAmount" /></view>
+      <view class="modal-actions"><button class="btn btn-outline" bindtap="closeProgressModal">取消</button><button class="btn btn-primary" bindtap="saveProgress">确认存入</button></view>
+    </view>
+  </view>
+
+  <!-- Budget Modal -->
+  <view class="modal-mask" wx:if="{{showBudgetModal}}" bindtap="closeBudgetModal">
+    <view class="modal" catchtap="">
+      <view class="modal-title">设置预算</view>
+      <view class="form-group"><view class="form-label">类别（留空为总预算）</view><picker value="{{budgetForm.categoryIndex}}" range="{{budgetCategories}}" bindchange="onBudgetCategory"><view class="form-input">{{budgetCategories[budgetForm.categoryIndex] || '总预算'}}</view></picker></view>
+      <view class="form-group"><view class="form-label">预算金额 (元/月)</view><input class="form-input" type="digit" value="{{budgetForm.amount}}" placeholder="2000" bindinput="onBudgetField" data-field="amount" /></view>
+      <view class="modal-actions"><button class="btn btn-outline" bindtap="closeBudgetModal">取消</button><button class="btn btn-primary" bindtap="saveBudget">确认设置</button></view>
+    </view>
+  </view>
+</scroll-view>

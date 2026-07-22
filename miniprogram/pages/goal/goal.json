@@ -1,0 +1,7 @@
+{
+  "navigationBarTitleText": "目标规划",
+  "usingComponents": {
+    "progress-bar": "/components/progress-bar/progress-bar",
+    "empty-state": "/components/empty-state/empty-state"
+  }
+}
