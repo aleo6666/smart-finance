@@ -1,0 +1,80 @@
+<scroll-view class="report-page" scroll-y>
+  <view class="period-bar">
+    <view class="period-item {{activePeriod === 'week' ? 'active' : ''}}" bindtap="switchPeriod" data-period="week">近一周</view>
+    <view class="period-item {{activePeriod === 'month' ? 'active' : ''}}" bindtap="switchPeriod" data-period="month">近一月</view>
+    <view class="period-item {{activePeriod === 'quarter' ? 'active' : ''}}" bindtap="switchPeriod" data-period="quarter">近一季</view>
+  </view>
+
+  <view class="error-banner" wx:if="{{loadError}}">
+    ⚠️ {{loadError}}
+    <button class="btn btn-outline btn-sm" bindtap="loadAll" style="margin-left:20rpx;">重试</button>
+  </view>
+
+  <view class="card stat-card" wx:if="{{report}}">
+    <view class="stat-row">
+      <view class="stat-item stat-income">
+        <view class="stat-value">¥{{report.incomeText || '0'}}</view>
+        <view class="stat-label">收入</view>
+      </view>
+      <view class="stat-item stat-expense">
+        <view class="stat-value">¥{{report.expenseText || '0'}}</view>
+        <view class="stat-label">支出</view>
+      </view>
+      <view class="stat-item stat-balance">
+        <view class="stat-value">{{report.balanceText || '0'}}</view>
+        <view class="stat-label">结余</view>
+      </view>
+    </view>
+    <view class="stat-meta">共 {{report.count || 0}} 笔 · 储蓄率 {{report.savingsRate || 0}}%</view>
+  </view>
+
+  <view class="card" wx:if="{{hasCategories}}">
+    <view class="card-title">🍩 支出分类</view>
+    <ec-canvas wx:if="{{pieReady}}" canvas-id="pie-chart" ec="{{pieEc}}"></ec-canvas>
+  </view>
+  <empty-state icon="🍩" text="暂无支出记录" wx:if="{{!hasCategories}}"></empty-state>
+
+  <view class="card" wx:if="{{hasTrends}}">
+    <view class="card-title">📈 消费趋势</view>
+    <ec-canvas wx:if="{{trendReady}}" canvas-id="trend-chart" ec="{{trendEc}}"></ec-canvas>
+  </view>
+  <empty-state icon="📈" text="数据不足" wx:if="{{!hasTrends}}"></empty-state>
+
+  <view class="card">
+    <view class="flex-between">
+      <view class="card-title">📝 最近记录</view>
+      <view class="text-sm text-secondary">{{records.length}} 条</view>
+    </view>
+    <view class="record-item" wx:for="{{records}}" wx:key="id">
+      <view class="flex-1">
+        <view class="record-desc">{{item.description || item.category}}</view>
+        <view class="text-sm text-secondary">{{item.date}} · {{item.category}} · {{item.type === 'income' ? '收入' : '支出'}}</view>
+      </view>
+      <view class="record-amount {{item.type === 'income' ? 'income' : 'expense'}}">
+        {{item.type === 'income' ? '+' : '-'}}{{item.amountText}}
+      </view>
+      <view class="btn-edit" bindtap="openEdit" data-id="{{item.id}}">✎</view>
+    </view>
+  </view>
+
+  <view class="modal-mask" wx:if="{{editRec}}" bindtap="closeEdit">
+    <view class="modal" catchtap="">
+      <view class="modal-title">✎ 编辑记录</view>
+      <view class="form-group">
+        <view class="form-label">类型</view>
+        <picker value="{{editForm.type === 'income' ? 1 : 0}}" range="{{['支出', '收入']}}" bindchange="onEditTypeChange">
+          <view class="form-input">{{editForm.type === 'income' ? '收入' : '支出'}}</view>
+        </picker>
+      </view>
+      <view class="form-group"><view class="form-label">金额</view><input class="form-input" type="digit" value="{{editForm.amount}}" bindinput="onEditField" data-field="amount" /></view>
+      <view class="form-group"><view class="form-label">分类</view><picker value="{{categoryIndex}}" range="{{categories}}" bindchange="onEditCategory"><view class="form-input">{{editForm.category}}</view></picker></view>
+      <view class="form-group"><view class="form-label">日期</view><input class="form-input" type="text" value="{{editForm.date}}" bindinput="onEditField" data-field="date" placeholder="YYYY-MM-DD" /></view>
+      <view class="form-group"><view class="form-label">商家</view><input class="form-input" value="{{editForm.merchant}}" bindinput="onEditField" data-field="merchant" placeholder="选填" /></view>
+      <view class="form-group"><view class="form-label">描述</view><input class="form-input" value="{{editForm.description}}" bindinput="onEditField" data-field="description" placeholder="选填" /></view>
+      <view class="modal-actions">
+        <button class="btn btn-outline" bindtap="closeEdit">取消</button>
+        <button class="btn btn-primary" bindtap="saveEdit" loading="{{savingEdit}}">保存</button>
+      </view>
+    </view>
+  </view>
+</scroll-view>

@@ -1,0 +1,8 @@
+{
+  "navigationBarTitleText": "消费分析",
+  "usingComponents": {
+    "ec-canvas": "/subpackages/chart/ec-canvas/ec-canvas",
+    "progress-bar": "/components/progress-bar/progress-bar",
+    "empty-state": "/components/empty-state/empty-state"
+  }
+}
