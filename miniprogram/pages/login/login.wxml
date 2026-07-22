@@ -1,0 +1,45 @@
+<view class="login-page">
+  <view class="login-card">
+    <view class="logo">💰</view>
+    <view class="title">智能财务记账</view>
+    <view class="subtitle">登录后开始记账之旅</view>
+
+    <button class="btn btn-primary btn-lg btn-full wechat-btn"
+      open-type="getPhoneNumber"
+      bindgetphonenumber="onGetPhoneNumber">
+      📱 手机号一键登录
+    </button>
+
+    <view class="divider">
+      <view class="divider-line"></view>
+      <text class="divider-text">或使用密码登录</text>
+      <view class="divider-line"></view>
+    </view>
+
+    <view class="tab-bar">
+      <view class="tab-item {{mode === 'login' ? 'active' : ''}}" bindtap="switchMode" data-mode="login">登录</view>
+      <view class="tab-item {{mode === 'register' ? 'active' : ''}}" bindtap="switchMode" data-mode="register">注册</view>
+    </view>
+
+    <view class="form">
+      <view class="form-group">
+        <view class="form-label">用户名</view>
+        <input class="form-input" value="{{username}}" placeholder="请输入用户名" bindinput="onUsernameInput" />
+      </view>
+      <view class="form-group">
+        <view class="form-label">密码</view>
+        <input class="form-input" value="{{password}}" type="password" placeholder="请输入密码（至少6位）" bindinput="onPasswordInput" />
+      </view>
+      <view class="form-group" wx:if="{{mode === 'register'}}">
+        <view class="form-label">确认密码</view>
+        <input class="form-input" value="{{confirmPassword}}" type="password" placeholder="再次输入密码" bindinput="onConfirmInput" />
+      </view>
+
+      <view class="error-msg" wx:if="{{error}}">{{error}}</view>
+
+      <button class="btn btn-primary btn-lg btn-full" bindtap="doSubmit" loading="{{loading}}" disabled="{{loading}}">
+        {{mode === 'login' ? '🔐 登录' : '📝 注册'}}
+      </button>
+    </view>
+  </view>
+</view>
