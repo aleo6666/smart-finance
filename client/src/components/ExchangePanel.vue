@@ -119,10 +119,10 @@ async function refresh() {
       for (const c of currencies.value) {
         const d = rateRes.data[c.code]
         if (d) {
-          c.rate = d.rate
-          c.change24h = d.change24h
-          c.changeDirection = d.change24h === null ? '' : d.change24h > 0 ? 'up' : d.change24h < 0 ? 'down' : 'flat'
-          c.alert = detectAlert(c.code, d)
+          c.rate = Number(d.rate)  // MySQL DECIMAL → number
+          c.change24h = d.change24h != null ? Number(d.change24h) : null
+          c.changeDirection = c.change24h === null ? '' : c.change24h > 0 ? 'up' : c.change24h < 0 ? 'down' : 'flat'
+          c.alert = detectAlert(c.code, c)
         }
       }
     }
@@ -147,7 +147,13 @@ watch(selectedCur, async (cur) => {
   if (!cur) { detail.value = null; return }
   try {
     const res = await api.getExchangeDetail(cur)
-    detail.value = res.data
+    // 归一化数值（MySQL DECIMAL → number）
+    const d = res.data
+    if (d) {
+      d.current = d.current != null ? Number(d.current) : null
+      if (d.history) d.history = d.history.map(h => ({ ...h, rate: Number(h.rate) || 0 }))
+    }
+    detail.value = d
     await nextTick()
     // 渲染迷你趋势图
     if (detail.value?.history?.length > 0 && miniChart.value) {

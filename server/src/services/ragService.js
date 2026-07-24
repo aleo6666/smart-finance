@@ -1,7 +1,7 @@
 export function createRagService({ retrieveSimilar, lmStudioClient, settings }) {
   async function answer({ question, userId, hints = {}, baseMessage = '' }) {
     if (!settings.enabled) {
-      return { message: baseMessage, sources: [], records: 0 }
+      return { message: baseMessage, sources: [], records: 0, retrievedRecords: [] }
     }
 
     let records
@@ -9,11 +9,11 @@ export function createRagService({ retrieveSimilar, lmStudioClient, settings }) 
       records = await retrieveSimilar(question, { userId, ...hints, limit: settings.topK })
     } catch (error) {
       console.warn('[RagService] retrieve failed:', error.message)
-      return { message: baseMessage, sources: [], records: 0 }
+      return { message: baseMessage, sources: [], records: 0, retrievedRecords: [] }
     }
 
     if (!records || !records.length) {
-      return { message: baseMessage, sources: [], records: 0 }
+      return { message: baseMessage, sources: [], records: 0, retrievedRecords: [] }
     }
 
     const systemMsg = {
@@ -33,7 +33,7 @@ export function createRagService({ retrieveSimilar, lmStudioClient, settings }) 
     }
 
     if (includedCount === 0) {
-      return { message: baseMessage, sources: [], records: 0 }
+      return { message: baseMessage, sources: [], records: 0, retrievedRecords: records }
     }
 
     const userMsg = {
@@ -44,12 +44,26 @@ export function createRagService({ retrieveSimilar, lmStudioClient, settings }) 
     try {
       const message = await lmStudioClient.chat([systemMsg, userMsg])
       const sources = [...new Set(records.slice(0, includedCount).map(r => r.recordId))]
-      return { message, sources, records: includedCount }
+      return { message, sources, records: includedCount, retrievedRecords: records.slice(0, includedCount) }
     } catch (error) {
       console.warn('[RagService] LM Studio chat failed:', error.message)
-      return { message: baseMessage, sources: [], records: 0 }
+      return { message: baseMessage, sources: [], records: 0, retrievedRecords: records }
     }
   }
 
   return { answer }
 }
+
+import config from '../config.js'
+import { retrieveSimilar } from './vectorMemory.js'
+import defaultLmStudioClient from './lmStudioClient.js'
+
+const defaultRagService = config.rag.enabled
+  ? createRagService({
+      retrieveSimilar,
+      lmStudioClient: defaultLmStudioClient,
+      settings: config.rag
+    })
+  : null
+
+export default defaultRagService

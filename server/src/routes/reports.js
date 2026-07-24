@@ -39,7 +39,7 @@ async function monthlySummary(dbClient, req, month) {
 export function createReportsRouter({ dbClient = db, createToken = uuid } = {}) {
   const router = Router()
 
-router.get('/monthly', async (req, res) => {
+router.get('/monthly', authMiddleware, async (req, res) => {
   const month = req.query.month || new Date().toISOString().slice(0, 7)
   const stats = await monthlySummary(dbClient, req, month)
   res.json({
@@ -54,7 +54,7 @@ router.get('/monthly', async (req, res) => {
   })
 })
 
-router.get('/category', async (req, res) => {
+router.get('/category', authMiddleware, async (req, res) => {
   const month = req.query.month || new Date().toISOString().slice(0, 7)
   const categories = await scopedRecords(dbClient, req)
     .where('type', 'expense')
@@ -67,7 +67,7 @@ router.get('/category', async (req, res) => {
   res.json({ success: true, data: categories })
 })
 
-router.get('/trend', async (req, res) => {
+router.get('/trend', authMiddleware, async (req, res) => {
   const months = Number(req.query.months) || 6
   const trends = await scopedRecords(dbClient, req)
     .whereRaw('date >= DATE_SUB(CURDATE(), INTERVAL ? MONTH)', [months])
@@ -79,7 +79,7 @@ router.get('/trend', async (req, res) => {
   res.json({ success: true, data: trends })
 })
 
-router.get('/today', async (req, res) => {
+router.get('/today', authMiddleware, async (req, res) => {
   const today = new Date().toISOString().slice(0, 10)
   const row = await scopedRecords(dbClient, req)
     .where({ date: today, type: 'expense' })
@@ -89,7 +89,7 @@ router.get('/today', async (req, res) => {
   res.json({ success: true, data: { date: today, total: Number(row?.total || 0), count: Number(row?.count || 0) } })
 })
 
-router.get('/timerange', async (req, res) => {
+router.get('/timerange', authMiddleware, async (req, res) => {
   const period = req.query.period || 'month'
   const today = new Date()
   const days = period === 'week' ? 6 : period === 'quarter' ? 90 : 29

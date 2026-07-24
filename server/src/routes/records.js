@@ -3,6 +3,7 @@ import db from '../db.js'
 import { getLatestRate } from '../services/exchangeRate.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { scanReceipt } from '../services/vision.js'
+import { createLogger } from '../utils/logger.js'
 import * as defaultVectorMemory from '../services/vectorMemory.js'
 import { checkBudgetAfterRecord } from '../services/monitorAgent.js'
 import {
@@ -14,11 +15,12 @@ import { saveConfirmedOcrRecords } from '../services/ocrConfirm.js'
 import multer from 'multer'
 
 const upload = multer({ dest: process.env.UPLOADS_DIR || 'uploads' })
+const logger = createLogger('Records')
 
-function toCny(amount, currency) {
+async function toCny(amount, currency) {
   if (!currency || currency === 'CNY') return amount
-  const r = getLatestRate(currency)
-  return r ? +(amount * r.rate).toFixed(2) : amount
+  const r = await getLatestRate(currency)
+  return r ? +(amount * Number(r.rate)).toFixed(2) : amount
 }
 
 export function createRecordsRouter({
@@ -30,6 +32,7 @@ export function createRecordsRouter({
 } = {}) {
   const router = Router()
   router.use(authMiddleware)
+  const logger = createLogger('Records')
 
   async function fetchRecord(id, userId) {
     return dbClient('records').where({ id, user_id: userId }).first()
@@ -60,7 +63,7 @@ export function createRecordsRouter({
     const { type = 'expense', amount, category, description, date, ledgerId, currency = 'CNY', merchant, project, member } = req.body
     if (!amount || !category || !date) return res.status(400).json({ success: false, error: '缺少 amount/category/date' })
 
-    const cnyAmount = toCny(Number(amount), currency)
+    const cnyAmount = await toCny(Number(amount), currency)
     const [id] = await dbClient('records').insert({
       device_id: `user-${req.userId}`,
       user_id: req.userId,
@@ -80,6 +83,7 @@ export function createRecordsRouter({
     const record = await fetchRecord(id, req.userId)
     vectorMemory.embedRecord(record).catch(error => console.warn('[Vector] embed skipped for record id=' + id + ':', error.message))
     await checkBudgetAfterRecord({ record }).catch(error => console.warn('[Monitor] skipped:', error.message))
+    logger.info('创建记账记录', { userId: req.userId, recordId: id, amount, category, type })
     res.json({ success: true, data: record })
   })
 
@@ -90,7 +94,7 @@ export function createRecordsRouter({
     const { type, amount, category, description, date, currency, merchant, project, member } = req.body
     const nextCurrency = currency || rec.currency || 'CNY'
     const nextAmount = amount ?? rec.amount
-    const cnyAmount = nextCurrency !== 'CNY' ? toCny(Number(nextAmount), nextCurrency) : nextAmount
+    const cnyAmount = nextCurrency !== 'CNY' ? await toCny(Number(nextAmount), nextCurrency) : nextAmount
 
     await dbClient('records').where({ id: req.params.id, user_id: req.userId }).update({
       type: type || rec.type,
@@ -107,6 +111,7 @@ export function createRecordsRouter({
 
     const updated = await fetchRecord(req.params.id, req.userId)
     vectorMemory.embedRecord(updated).catch(error => console.warn('[Vector] re-index skipped for record id=' + req.params.id + ':', error.message))
+    logger.info('修改记账记录', { userId: req.userId, recordId: req.params.id })
     res.json({ success: true, data: updated })
   })
 
@@ -115,6 +120,7 @@ export function createRecordsRouter({
     if (!rec) return res.status(404).json({ success: false, error: '记录不存在' })
     await dbClient('records').where({ id: req.params.id, user_id: req.userId }).delete()
     vectorMemory.deleteRecordVector(req.params.id).catch(error => console.warn('[Vector] delete skipped for record id=' + req.params.id + ':', error.message))
+    logger.info('删除记账记录', { userId: req.userId, recordId: req.params.id })
     res.json({ success: true })
   })
 
@@ -143,6 +149,7 @@ export function createRecordsRouter({
     }).filter(row => row.amount > 0 && row.date)
 
     if (rows.length) await dbClient('records').insert(rows)
+    logger.info('CSV导入记账记录', { userId: req.userId, count: rows.length })
     res.json({ success: true, data: { imported: rows.length } })
   })
 
@@ -183,7 +190,7 @@ export function createRecordsRouter({
       })
     } catch (error) {
       console.error('[OCR] failed:', error)
-      res.status(500).json({ success: false, error: `图片处理失败: ${error.message}` })
+      res.status(500).json({ success: false, error: '图片处理失败，请稍后重试' })
     }
   })
 
@@ -200,9 +207,11 @@ export function createRecordsRouter({
         confirmedRecords: records
       })
       await ocrSessionService.clearOcrSession({ userId: req.userId, ocrSessionId })
+      logger.info('OCR确认保存记录', { userId: req.userId, count: result.count })
       res.json({ success: true, data: result })
     } catch (error) {
-      res.status(400).json({ success: false, error: error.message })
+      console.error('[OCR] confirm failed:', error)
+      res.status(400).json({ success: false, error: '保存记录失败，请检查数据后重试' })
     }
   })
 

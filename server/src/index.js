@@ -9,6 +9,7 @@ dotenv.config({ path: join(__dirname, '..', '.env') })
 import express from 'express'
 import cors from 'cors'
 import config from './config.js'
+import { authLimiter, apiLimiter, strictLimiter } from './middleware/rateLimiter.js'
 import db from './db.js'
 import { ensureSchema } from './schema.js'
 import { deviceIdMiddleware } from './middleware/deviceId.js'
@@ -27,6 +28,8 @@ import exportRouter from './routes/export.js'
 import observeRouter from './routes/observe.js'
 import insightsRouter from './routes/insights.js'
 import datasetsRouter from './routes/datasets.js'
+import adviceRouter from './routes/advice.js'
+import importRouter from './routes/import.js'
 import { startScheduler } from './services/scheduler.js'
 import { initVectorCollection, VectorDimensionError, createVectorClient } from './services/vectorMemory.js'
 import defaultLmStudioClient from './services/lmStudioClient.js'
@@ -36,12 +39,26 @@ import { createHealthRouter } from './routes/health.js'
 
 const app = express()
 
+// 生产环境信任前端代理的 X-Forwarded-* 头
+if (process.env.TRUST_PROXY === 'true' || config.server.nodeEnv === 'production') {
+  app.set('trust proxy', 1)
+}
+
 const DATA_DIR = process.env.DATA_DIR || join(__dirname, '..')
 mkdirSync(DATA_DIR, { recursive: true })
 
-app.use(cors())
+app.use(cors({
+  origin: config.server.nodeEnv === 'production'
+    ? ['https://lisheng666.xyz', 'https://www.lisheng666.xyz']
+    : true,
+  credentials: true
+}))
 app.use(express.json())
 app.use(deviceIdMiddleware)
+
+// 频率限制
+app.use('/api/auth', authLimiter)
+app.use('/api', apiLimiter)
 
 app.use('/api/chat', chatRouter)
 app.use('/api/records', recordsRouter)
@@ -54,10 +71,12 @@ app.use('/api/exchange', exchangeRouter)
 app.use('/api/auth', authRouter)
 app.use('/api/ledgers', ledgersRouter)
 app.use('/api/share', shareRouter)
-app.use('/api/export', exportRouter)
+app.use('/api/export', strictLimiter, exportRouter)
 app.use('/api/observe', observeRouter)
 app.use('/api/insights', insightsRouter)
 app.use('/api/datasets', datasetsRouter)
+app.use('/api/advice', adviceRouter)
+app.use('/api/import', importRouter)
 
 const uploadsDir = process.env.UPLOADS_DIR || 'uploads'
 app.use('/uploads', express.static(uploadsDir))
@@ -70,6 +89,11 @@ app.use('/api/health', createHealthRouter({
     lmStudioClient: defaultLmStudioClient
   })
 }))
+
+app.use((err, _req, res, _next) => {
+  console.error('[Unhandled]', err)
+  res.status(500).json({ success: false, error: '服务器内部错误' })
+})
 
 export async function bootstrap() {
   await ensureSchema(db)

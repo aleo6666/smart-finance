@@ -226,6 +226,87 @@ export function getCreateTableStatements() {
       enabled TINYINT(1) NOT NULL DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       KEY idx_cost_alert_rules_user (user_id, enabled)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+    `CREATE TABLE IF NOT EXISTS task_steps (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      plan_id VARCHAR(64) NOT NULL,
+      user_id BIGINT UNSIGNED NULL,
+      step_order INT UNSIGNED NOT NULL,
+      intent VARCHAR(64) NOT NULL,
+      input_json JSON NULL,
+      output_json JSON NULL,
+      depends_on INT UNSIGNED NULL,
+      status VARCHAR(16) NOT NULL DEFAULT 'queued',
+      started_at DATETIME NULL,
+      completed_at DATETIME NULL,
+      latency_ms INT UNSIGNED DEFAULT 0,
+      error_message TEXT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_task_steps_plan (plan_id),
+      KEY idx_task_steps_user_created (user_id, created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+    `CREATE TABLE IF NOT EXISTS advice_reviews (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      user_id BIGINT UNSIGNED NOT NULL,
+      advice_text TEXT NOT NULL,
+      risk_level VARCHAR(16) NOT NULL DEFAULT 'low',
+      status VARCHAR(16) NOT NULL DEFAULT 'pending',
+      reviewed_by BIGINT UNSIGNED NULL,
+      reviewed_at DATETIME NULL,
+      original_advice TEXT NULL,
+      disclaimer TEXT NULL,
+      context_json JSON NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      KEY idx_advice_reviews_status (status),
+      KEY idx_advice_reviews_user (user_id, created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+    `CREATE TABLE IF NOT EXISTS import_batches (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      user_id BIGINT UNSIGNED NOT NULL,
+      ledger_id BIGINT UNSIGNED NULL,
+      source_type VARCHAR(32) NOT NULL DEFAULT 'csv',
+      file_name VARCHAR(255),
+      total_count INT UNSIGNED DEFAULT 0,
+      valid_count INT UNSIGNED DEFAULT 0,
+      duplicate_count INT UNSIGNED DEFAULT 0,
+      error_count INT UNSIGNED DEFAULT 0,
+      imported_count INT UNSIGNED DEFAULT 0,
+      status VARCHAR(24) NOT NULL DEFAULT 'parsing',
+      preview_data JSON NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      imported_at DATETIME NULL,
+      rolled_back_at DATETIME NULL,
+      KEY idx_import_batches_user (user_id, created_at),
+      KEY idx_import_batches_status (status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+    `CREATE TABLE IF NOT EXISTS import_records (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      batch_id BIGINT UNSIGNED NOT NULL,
+      user_id BIGINT UNSIGNED NOT NULL,
+      record_id BIGINT UNSIGNED NULL,
+      original_row JSON NOT NULL,
+      mapped_type VARCHAR(16),
+      mapped_amount DECIMAL(14,4),
+      mapped_category VARCHAR(64),
+      mapped_date DATE,
+      mapped_description TEXT,
+      mapped_merchant VARCHAR(128),
+      status VARCHAR(24) NOT NULL DEFAULT 'pending',
+      is_duplicate TINYINT(1) DEFAULT 0,
+      duplicate_of_record_id BIGINT UNSIGNED NULL,
+      duplicate_similarity DECIMAL(5,4) DEFAULT 0,
+      error_message VARCHAR(255),
+      selected TINYINT(1) DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      imported_at DATETIME NULL,
+      KEY idx_import_records_batch (batch_id),
+      KEY idx_import_records_user (user_id, created_at),
+      KEY idx_import_records_record (record_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
   ]
 }

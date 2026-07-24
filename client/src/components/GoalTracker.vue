@@ -1,5 +1,18 @@
 <template>
   <div class="goal-panel">
+    <!-- 错误提示 -->
+    <div v-if="error" class="error-banner">
+      ⚠️ {{ error }}
+      <button class="btn btn-sm btn-outline" @click="loadData()" style="margin-left:12px;">重试</button>
+    </div>
+
+    <!-- 加载中 -->
+    <div v-if="loading && !error" class="empty-state" style="padding:60px 20px;">
+      <div class="empty-icon">⏳</div>
+      <p>加载中...</p>
+    </div>
+
+    <template v-if="!loading && !error">
     <!-- 预算设置 -->
     <div class="report-card" style="margin-bottom: 20px;">
       <h3>💰 月度预算</h3>
@@ -7,7 +20,7 @@
         <div v-for="b in budgets" :key="b.id" style="margin-bottom: 14px;">
           <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px;">
             <span>{{ b.category || '总预算' }}</span>
-            <span>¥{{ b.spent?.toFixed(0) || 0 }} / ¥{{ b.amount }}</span>
+            <span>¥{{ (b.spent || 0).toFixed(0) }} / ¥{{ (b.amount || 0).toFixed(0) }}</span>
           </div>
           <div class="progress-bar">
             <div
@@ -64,6 +77,9 @@
       <p style="font-size: 12px;">设定一个目标，开始你的储蓄计划吧！</p>
     </div>
 
+    </template>
+
+    <!-- 弹窗：不受加载状态限制 -->
     <!-- 新建目标弹窗 -->
     <div class="modal-overlay" v-if="showGoalModal" @click.self="showGoalModal = false">
       <div class="modal">
@@ -128,11 +144,18 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { useAppStore } from '../stores/app.js'
 import { api } from '../utils/api.js'
+
+const store = useAppStore()
+const router = useRouter()
 
 const categories = ['餐饮', '交通', '购物', '娱乐', '住房', '医疗', '教育', '通讯', '礼物', '其他']
 const goals = ref([])
 const budgets = ref([])
+const loading = ref(true)
+const error = ref('')
 const showGoalModal = ref(false)
 const showProgressModal = ref(false)
 const showBudgetModal = ref(false)
@@ -142,20 +165,51 @@ const progressAmount = ref(500)
 const goalForm = ref({ name: '', target_amount: 0, deadline: '' })
 const budgetForm = ref({ category: '', amount: 0 })
 
-onMounted(loadData)
+onMounted(async () => {
+  if (!store.token) { router.push('/login'); return }
+  await loadData()
+})
 
 async function loadData() {
-  const [gRes, bRes] = await Promise.all([
-    api.getGoals(),
-    api.getBudgets()
-  ])
-  goals.value = gRes.data || []
+  loading.value = true
+  error.value = ''
+  try {
+    const [gRes, bRes] = await Promise.race([
+      Promise.all([api.getGoals(), api.getBudgets()]),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000))
+    ])
 
-  // 计算预算使用情况
-  budgets.value = (bRes.data || []).map(b => {
-    const spent = b.spent || 0
-    return { ...b, spent, percent: b.amount > 0 ? Math.round(spent / b.amount * 100) : 0 }
-  })
+    // 检查 auth 是否过期
+    if (!gRes.success && gRes.error === '登录已过期') { store.logout(); router.push('/login'); return }
+    if (!bRes.success && bRes.error === '登录已过期') { store.logout(); router.push('/login'); return }
+
+    // 即使 success=false（非过期错误），也继续渲染，不清空已有数据
+    // 归一化数值（MySQL DECIMAL 返回字符串）
+    if (gRes.success) {
+      goals.value = (gRes.data || []).map(g => ({
+        ...g,
+        current_amount: Number(g.current_amount) || 0,
+        target_amount: Number(g.target_amount) || 0
+      }))
+    }
+    if (bRes.success) {
+      budgets.value = (bRes.data || []).map(b => {
+        const amount = Number(b.amount) || 0
+        const spent = Number(b.spent) || 0
+        return { ...b, amount, spent, percent: amount > 0 ? Math.round(spent / amount * 100) : 0 }
+      })
+    }
+
+    if (!gRes.success && !bRes.success) {
+      error.value = '加载数据失败，请重新登录后重试'
+    }
+  } catch (e) {
+    error.value = e.message === 'timeout'
+      ? '请求超时，请检查网络后刷新重试'
+      : '网络错误，请检查连接后刷新重试'
+  } finally {
+    loading.value = false
+  }
 }
 
 function getPercent(g) {
@@ -169,10 +223,14 @@ function getProgressClass(g) {
 
 async function createGoal() {
   if (!goalForm.value.name || !goalForm.value.target_amount) return
-  await api.createGoal(goalForm.value)
-  goalForm.value = { name: '', target_amount: 0, deadline: '' }
-  showGoalModal.value = false
-  await loadData()
+  try {
+    await api.createGoal(goalForm.value)
+    goalForm.value = { name: '', target_amount: 0, deadline: '' }
+    showGoalModal.value = false
+    await loadData()
+  } catch (e) {
+    error.value = '创建目标失败，请重试'
+  }
 }
 
 function addProgress(g) {
@@ -183,7 +241,7 @@ function addProgress(g) {
 
 async function saveProgress() {
   if (!progressAmount.value || !progressGoal.value) return
-  const newAmount = progressGoal.value.current_amount + progressAmount.value
+  const newAmount = Number(progressGoal.value.current_amount) + Number(progressAmount.value)
   await api.updateGoal(progressGoal.value.id, { current_amount: newAmount })
   showProgressModal.value = false
   await loadData()
@@ -201,12 +259,16 @@ async function deleteGoal(id) {
 
 async function saveBudget() {
   if (!budgetForm.value.amount) return
-  await api.setBudget({
-    category: budgetForm.value.category || null,
-    amount: budgetForm.value.amount
-  })
-  budgetForm.value = { category: '', amount: 0 }
-  showBudgetModal.value = false
-  await loadData()
+  try {
+    await api.setBudget({
+      category: budgetForm.value.category || null,
+      amount: budgetForm.value.amount
+    })
+    budgetForm.value = { category: '', amount: 0 }
+    showBudgetModal.value = false
+    await loadData()
+  } catch (e) {
+    error.value = '设置预算失败，请重试'
+  }
 }
 </script>

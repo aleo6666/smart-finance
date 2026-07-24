@@ -1,22 +1,24 @@
-const SERVICE_NAMES = ['mysql', 'redis', 'qdrant', 'lmStudioModels', 'lmStudioEmbedding', 'lmStudioChat']
+const REQUIRED_SERVICES = ['mysql', 'redis', 'qdrant']
+const OPTIONAL_SERVICES = ['lmStudioModels', 'lmStudioEmbedding', 'lmStudioChat']
+const ALL_SERVICES = [...REQUIRED_SERVICES, ...OPTIONAL_SERVICES]
 
 export async function checkDependencies({ checks }) {
   const services = {}
-  let allOk = true
+  let degraded = false
 
-  await Promise.all(SERVICE_NAMES.map(async (name) => {
+  await Promise.all(ALL_SERVICES.map(async (name) => {
     try {
       const result = await checks[name]()
       services[name] = result
-      if (!result.ok) allOk = false
+      if (!result.ok && REQUIRED_SERVICES.includes(name)) degraded = true
     } catch (_err) {
       services[name] = { ok: false, reason: 'check failed' }
-      allOk = false
+      if (REQUIRED_SERVICES.includes(name)) degraded = true
     }
   }))
 
   return {
-    status: allOk ? 'ready' : 'degraded',
+    status: degraded ? 'degraded' : 'ready',
     services
   }
 }
@@ -50,6 +52,8 @@ export function createDefaultChecks({ db, redis, qdrantClient, lmStudioClient })
     },
     lmStudioModels: async () => {
       try {
+        const hasBaseUrl = lmStudioClient.listModels && true
+        if (!hasBaseUrl) return { ok: true, skipped: true, reason: 'LM Studio 未配置' }
         const models = await lmStudioClient.listModels()
         if (Array.isArray(models) && models.length > 0) {
           return { ok: true }

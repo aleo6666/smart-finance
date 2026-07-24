@@ -133,7 +133,7 @@ test('lmStudioChat check failure returns safe short reason with no stack', async
 test('reason never contains password-like strings', async () => {
   const result = await checkDependencies({
     checks: {
-      mysql: async () => { throw new Error('Access denied for user root using password FinancePass2026!') },
+      mysql: async () => { throw new Error('Access denied for user root (password redacted)') },
       redis: async () => ({ ok: true }),
       qdrant: async () => ({ ok: true }),
       lmStudioModels: async () => ({ ok: true }),
@@ -142,7 +142,7 @@ test('reason never contains password-like strings', async () => {
     }
   })
   assert.equal(result.services.mysql.ok, false)
-  assert.equal(result.services.mysql.reason.includes('FinancePass2026'), false)
+  assert.equal(result.services.mysql.reason.includes('password'), false)
 })
 
 test('reason never contains prompt content', async () => {

@@ -1,7 +1,9 @@
 import db from '../db.js'
 
 function monthOf(date) {
-  return String(date || new Date().toISOString().slice(0, 10)).slice(0, 7)
+  if (!date) return new Date().toISOString().slice(0, 7)
+  if (date instanceof Date) return date.toISOString().slice(0, 7)
+  return String(date).slice(0, 7)
 }
 
 export function createMonitorRepository(dbClient = db) {

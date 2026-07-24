@@ -14,10 +14,19 @@ import {
   extractQueryHints
 } from '../services/chatMemory.js'
 import { retrieveSimilar as defaultRetrieveSimilar } from '../services/vectorMemory.js'
+import defaultRagService from '../services/ragService.js'
 import {
   buildFinanceQueryReply,
   queryFinanceSummary as defaultQueryFinanceSummary
 } from '../services/financeQuery.js'
+import {
+  planMultiStepTask as defaultPlanMultiStep,
+  executePlan as defaultExecutePlan,
+  detectCompoundIntent
+} from '../services/orchestratorAgent.js'
+import { recordAgentEvent as defaultRecordAgentEvent } from '../services/observeService.js'
+import { submitAdviceForReview as defaultSubmitAdviceForReview } from '../services/adviceReview.js'
+import { processQuery as defaultMasterProcessQuery } from '../services/masterAgent.js'
 
 function defaultGetUserId(req) {
   try {
@@ -40,7 +49,12 @@ export function createChatRouter({
   appendConversationMessage = defaultAppendConversationMessage,
   retrieveSimilar = defaultRetrieveSimilar,
   queryFinanceSummary = defaultQueryFinanceSummary,
-  ragService = null
+  ragService = null,
+  planMultiStep = defaultPlanMultiStep,
+  executePlan = defaultExecutePlan,
+  recordAgentEvent = defaultRecordAgentEvent,
+  submitAdviceForReview = defaultSubmitAdviceForReview,
+  masterProcessQuery = defaultMasterProcessQuery
 } = {}) {
   const router = Router()
 
@@ -90,9 +104,110 @@ export function createChatRouter({
 
     try {
       const identity = userId ? `user-${userId}` : deviceId
+
+      // ---- 极简 3 Agent 架构（主从协同）----
+      // 通过 use3Agent 参数启用新架构，用于灰度验证
+      const use3Agent = req.body.use3Agent === true || req.query.use3Agent === 'true'
+      if (use3Agent && userId) {
+        const started = Date.now()
+        const masterResult = await masterProcessQuery({ userId, message })
+
+        // 记录到观测系统
+        recordAgentEvent({
+          userId,
+          callType: 'master_agent',
+          latencyMs: Date.now() - started,
+          success: masterResult.success
+        }).catch(() => {})
+
+        // 保存对话上下文
+        await appendTurn(identity, message, masterResult.answer || '').catch(error => {
+          console.warn('[Chat] 3Agent context append skipped:', error.message)
+        })
+
+        return res.json({
+          success: masterResult.success,
+          data: {
+            intent: 'query',
+            message: masterResult.answer,
+            agent: '3agent',
+            pattern: masterResult.pattern,
+            execution: masterResult.execution,
+            error: masterResult.error
+          }
+        })
+      }
+
       const result = await processMessage(identity, message)
 
-      const shouldUseMemory = ['query', 'advice', 'chat'].includes(result.intent)
+      // ---- 编排链路：复合意图走多步编排 ----
+      // 放宽：query/advice/chat 都允许，只要 compoundIntent 命中且已登录
+      const compoundIntent = detectCompoundIntent(message)
+      const orchestratedIntents = ['query', 'advice', 'chat']
+      let orchestrationRan = false
+      const shouldAttemptOrchestration = compoundIntent && orchestratedIntents.includes(result.intent) && userId
+
+      if (shouldAttemptOrchestration) {
+        const started = Date.now()
+        try {
+          const hints = extractQueryHints(message, { context: await getContextSafely(identity).catch(() => []) })
+          const plan = await planMultiStep({ message, userId, hints })
+          const execResult = await executePlan({
+            plan,
+            userId,
+            recordStepFn: ({ userId: uid, stepIntent, latencyMs, success, errorMessage }) =>
+              recordAgentEvent({ userId: uid, callType: `orchestrator_${stepIntent}`, latencyMs, success, errorMessage }).catch(() => {})
+          })
+
+          // 审核（中高风险不影响报告输出，只追加提示）
+          let reviewResult = null
+          if (execResult.advice) {
+            try {
+              reviewResult = await submitAdviceForReview({
+                userId,
+                adviceText: execResult.advice,
+                context: { planId: execResult.planId, compoundIntent, message }
+              })
+            } catch (e) {
+              console.warn('[Chat] advice review skipped:', e.message)
+            }
+          }
+
+          // 消息优先级：编排报告 > 编排摘要 > NLU 原消息
+          const primaryMsg = execResult.report || execResult.summary || result.message
+          // 审核提示作为脚注追加，不覆盖报告正文
+          const reviewNote = reviewResult?.needsReview
+            ? `\n\n---\n${reviewResult.disclaimer}\n⚠️ 该建议已提交人工审核，通过后将通知您。`
+            : ''
+          result.message = primaryMsg + reviewNote
+
+          result.orchestrator = {
+            planId: execResult.planId,
+            intent: compoundIntent,
+            steps: execResult.steps?.map(s => ({ intent: s.intent, success: s.success, latencyMs: s.latencyMs })),
+            succeededCount: execResult.succeededCount,
+            failedCount: execResult.failedCount
+          }
+          if (reviewResult) {
+            result.review = { id: reviewResult.id, riskLevel: reviewResult.riskLevel, needsReview: reviewResult.needsReview }
+          }
+
+          orchestrationRan = true
+
+          recordAgentEvent({
+            userId,
+            callType: 'orchestrator',
+            latencyMs: Date.now() - started,
+            success: execResult.success
+          }).catch(() => {})
+        } catch (error) {
+          console.warn('[Chat] orchestrator skipped:', error.message)
+          result.orchestrator = { error: error.message }
+        }
+      }
+
+      // ---- 常规记忆/RAG：编排已处理则跳过 ----
+      const shouldUseMemory = ['query', 'advice', 'chat'].includes(result.intent) && !orchestrationRan
       if (shouldUseMemory) {
         const context = await getContextSafely(identity)
         const hints = extractQueryHints(message, { context })
@@ -141,7 +256,28 @@ export function createChatRouter({
         }
       }
 
+      // ---- 建议审核：非编排路径的 advice 意图（编排已审核则跳过） ----
+      if (result.intent === 'advice' && userId && result.message && !orchestrationRan) {
+        try {
+          const reviewResult = await submitAdviceForReview({
+            userId,
+            adviceText: result.message,
+            context: { intent: 'advice', message }
+          })
+          // 低风险直接放行用原文；中高风险附带免责声明，不替换正文
+          if (reviewResult.needsReview) {
+            result.message = result.message + `\n\n---\n${reviewResult.disclaimer}\n⚠️ 该建议已提交人工审核，通过后将通知您。`
+          }
+          result.review = { id: reviewResult.id, riskLevel: reviewResult.riskLevel, needsReview: reviewResult.needsReview }
+        } catch (e) {
+          console.warn('[Chat] advice review skipped:', e.message)
+        }
+      }
+
       if (result.intent === 'record' && result.data?.amount) {
+        if (!userId) {
+          return res.json({ success: true, data: { intent: 'chat', message: '请先登录后再记账。', data: null } })
+        }
         const task = createRecordTaskFromNlu({ userId, deviceId, message, nluResult: result })
         if (task) {
           await enqueueTask(task.agentType, task.payload, { taskId: task.taskId })
@@ -160,13 +296,9 @@ export function createChatRouter({
       res.json({ success: true, data: result })
     } catch (error) {
       console.error('Chat error:', error)
-      res.json({
-        success: true,
-        data: {
-          intent: 'chat',
-          message: '抱歉，处理消息时出了一点问题，请稍后再试。',
-          data: null
-        }
+      res.status(500).json({
+        success: false,
+        error: '抱歉，处理消息时出了一点问题，请稍后再试。'
       })
     }
   })
@@ -174,4 +306,4 @@ export function createChatRouter({
   return router
 }
 
-export default createChatRouter()
+export default createChatRouter({ ragService: defaultRagService })

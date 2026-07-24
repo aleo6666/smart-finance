@@ -10,7 +10,16 @@ export class LmStudioError extends Error {
 }
 
 export function createLmStudioClient({ settings = config.lmStudio, fetchFn = fetch } = {}) {
-  const { baseUrl, embeddingModel, chatModel, embeddingTimeoutMs, chatTimeoutMs, listModelsTimeoutMs } = settings
+  const { baseUrl, embeddingModel, chatModel, embeddingTimeoutMs, chatTimeoutMs, listModelsTimeoutMs, apiKey, embeddingBaseUrl, embeddingApiKey } = settings
+
+  function authHeaders() {
+    return apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {}
+  }
+
+  function embeddingAuthHeaders() {
+    const key = embeddingApiKey || apiKey
+    return key ? { 'Authorization': `Bearer ${key}` } : {}
+  }
 
   function wrapError(err) {
     if (err instanceof LmStudioError) return err
@@ -23,10 +32,11 @@ export function createLmStudioClient({ settings = config.lmStudio, fetchFn = fet
   async function embed(text) {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), embeddingTimeoutMs)
+    const embedUrl = embeddingBaseUrl || baseUrl
     try {
-      const res = await fetchFn(`${baseUrl}/embeddings`, {
+      const res = await fetchFn(`${embedUrl}/embeddings`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...embeddingAuthHeaders() },
         body: JSON.stringify({ model: embeddingModel, input: text }),
         signal: controller.signal
       })
@@ -51,7 +61,7 @@ export function createLmStudioClient({ settings = config.lmStudio, fetchFn = fet
     try {
       const res = await fetchFn(`${baseUrl}/chat/completions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ model: chatModel, messages }),
         signal: controller.signal
       })
@@ -76,7 +86,7 @@ export function createLmStudioClient({ settings = config.lmStudio, fetchFn = fet
     try {
       const res = await fetchFn(`${baseUrl}/models`, {
         method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         signal: controller.signal
       })
       if (!res.ok) {

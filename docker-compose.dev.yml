@@ -1,0 +1,7 @@
+# Smart Finance - 本地开发覆盖
+# 用法: docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.dev.yml up -d
+
+services:
+  frontend:
+    ports:
+      - "127.0.0.1:5173:80"

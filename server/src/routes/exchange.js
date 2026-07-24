@@ -8,11 +8,11 @@ import {
 const router = Router()
 
 // 获取最新汇率
-router.get('/latest', (req, res) => {
-  const rates = getLatestRates()
+router.get('/latest', async (req, res) => {
+  const rates = await getLatestRates()
   const data = {}
   for (const [cur, row] of Object.entries(rates)) {
-    const change = get24hChange(cur)
+    const change = await get24hChange(cur)
     data[cur] = {
       rate: row.rate,
       updatedAt: row.fetched_at,
@@ -23,14 +23,14 @@ router.get('/latest', (req, res) => {
 })
 
 // 获取单个货币详情（含历史+趋势+建议）
-router.get('/detail/:currency', (req, res) => {
+router.get('/detail/:currency', async (req, res) => {
   const { currency } = req.params
-  const latest = getLatestRates()
-  const history = getHistory(currency.toUpperCase(), 168)
-  const trend = getConsecutiveTrend(currency.toUpperCase(), 3)
-  const change = get24hChange(currency.toUpperCase())
-  const advice = getRateAdvice(currency.toUpperCase())
-  const weekly = generateWeeklyReport()
+  const latest = await getLatestRates()
+  const history = await getHistory(currency.toUpperCase(), 168)
+  const trend = await getConsecutiveTrend(currency.toUpperCase(), 3)
+  const change = await get24hChange(currency.toUpperCase())
+  const advice = await getRateAdvice(currency.toUpperCase())
+  const weekly = await generateWeeklyReport()
 
   res.json({
     success: true,
@@ -38,7 +38,7 @@ router.get('/detail/:currency', (req, res) => {
       currency: currency.toUpperCase(),
       current: latest[currency.toUpperCase()]?.rate || null,
       change24h: change,
-      history: history.slice(-48), // 最近48条
+      history: history.slice(-48),
       trend,
       advice,
       weeklyReport: weekly.currencies[currency.toUpperCase()] || null
@@ -47,20 +47,20 @@ router.get('/detail/:currency', (req, res) => {
 })
 
 // 异常检测
-router.get('/alerts', (req, res) => {
-  const alerts = detectAnomalies()
+router.get('/alerts', async (req, res) => {
+  const alerts = await detectAnomalies()
   res.json({ success: true, data: alerts })
 })
 
 // 周报
-router.get('/weekly', (req, res) => {
-  const report = generateWeeklyReport()
+router.get('/weekly', async (req, res) => {
+  const report = await generateWeeklyReport()
   res.json({ success: true, data: report })
 })
 
 // 汇率上下文（供前端展示）
-router.get('/context', (req, res) => {
-  const context = getExchangeContext()
+router.get('/context', async (req, res) => {
+  const context = await getExchangeContext()
   res.json({ success: true, data: context })
 })
 

@@ -72,7 +72,7 @@ Write-Host "  OK Containers started" -ForegroundColor Green
 
 # 7. Wait for MySQL
 Write-Host "`n[7/10] Waiting for MySQL..." -ForegroundColor Yellow
-docker compose --env-file .env.local exec -T mysql mysqladmin ping -h localhost -ufinance -pFinancePass2026! --silent 2>$null
+docker compose --env-file .env.local exec -T mysql mysqladmin ping -h localhost -ufinance --silent 2>$null
 # Use health check wait instead
 $maxWait = 60; $waited = 0
 while ($waited -lt $maxWait) {

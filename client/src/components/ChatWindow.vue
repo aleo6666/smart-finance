@@ -59,13 +59,6 @@
         <input type="file" ref="fileInput" accept="image/*" capture="environment" style="display:none" @change="onFileChange" />
         <button @click="send()" :disabled="!input.trim() || store.loading">↑</button>
       </div>
-      <div class="quick-actions">
-        <span class="quick-action" @click="send('今天午餐花了25元')">🍜 记账</span>
-        <span class="quick-action" @click="send('这个月花了多少钱')">📊 本月</span>
-        <span class="quick-action" @click="send('有什么省钱建议吗')">💡 建议</span>
-        <span class="quick-action" @click="send('我想存钱买一个新手机')">🎯 设目标</span>
-        <span class="quick-action highlight" @click="triggerUpload()">📷 扫小票</span>
-      </div>
     </div>
   </div>
 </template>

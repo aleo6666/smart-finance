@@ -11,10 +11,67 @@ export const useAppStore = defineStore('app', {
     reminderCount: 0,
     reminders: [],
     reminderHighlights: [],
-    showReminderPanel: false
+    showReminderPanel: false,
+
+    // v2: 登录态
+    user: null,
+    ledgers: [],
+    selectedLedgerId: null,
+    token: localStorage.getItem('auth_token') || null
   }),
 
+  getters: {
+    isLoggedIn: (state) => !!state.token && !!state.user,
+    currentLedgerName: (state) => {
+      const l = state.ledgers.find(l => l.id === state.selectedLedgerId)
+      return l ? l.name : '全部账本'
+    }
+  },
+
   actions: {
+    // ====== 登录 ======
+    setToken(token) {
+      this.token = token
+      api.setToken(token)
+    },
+
+    async loginByWechatMini(code) {
+      const res = await api.wechatMiniLogin(code)
+      if (res.success) {
+        this.setToken(res.data.token)
+        await this.loadUser()
+      }
+      return res
+    },
+
+    async loadUser() {
+      try {
+        const res = await api.getMe()
+        if (res.success) {
+          this.user = res.data.user
+          this.ledgers = res.data.ledgers
+          if (this.ledgers.length > 0 && !this.selectedLedgerId) {
+            this.selectedLedgerId = this.ledgers[0].id
+          }
+        }
+      } catch {
+        this.logout()
+      }
+    },
+
+    logout() {
+      this.token = null
+      this.user = null
+      this.ledgers = []
+      this.selectedLedgerId = null
+      api.clearToken()
+    },
+
+    selectLedger(id) {
+      this.selectedLedgerId = id
+    },
+
+    // ====== 聊天 ======
     async sendMessage(text) {
       this.messages.push({ role: 'user', content: text, time: new Date() })
       this.loading = true
@@ -53,8 +110,8 @@ export const useAppStore = defineStore('app', {
       this.loading = true
 
       try {
-        const res = await api.uploadReceipt(file)
-        if (res.success && res.data.records.length > 0) {
+        const res = this.isLoggedIn ? await api.ocrReceipt(file) : await api.uploadReceipt(file)
+        if (res.success && res.data.records && res.data.records.length > 0) {
           const data = res.data
           const recordLines = data.records.map(r =>
             `${r.category} ¥${r.amount.toFixed(2)} (${r.description})`
@@ -72,7 +129,7 @@ export const useAppStore = defineStore('app', {
         } else {
           this.messages.push({
             role: 'assistant',
-            content: res.data.summary || '未能识别图片中的消费信息，请确认图片清晰可见或手动输入。',
+            content: (res.data && res.data.summary) || '未能识别图片中的消费信息，请确认图片清晰可见或手动输入。',
             intent: 'chat',
             time: new Date()
           })

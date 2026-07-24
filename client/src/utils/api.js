@@ -40,8 +40,98 @@ async function request(path, options = {}) {
   return json
 }
 
+/* 下载二进制文件 */
+async function downloadBlob(path, filename) {
+  const res = await fetch(path, {
+    headers: {
+      'Authorization': `Bearer ${getToken()}`,
+      'X-Device-Id': getDeviceId()
+    }
+  })
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export const api = {
-  // 聊天
+  // ====== v2: 鉴权 ======
+  setToken(token) {
+    localStorage.setItem('auth_token', token)
+  },
+  clearToken() {
+    localStorage.removeItem('auth_token')
+  },
+  isLoggedIn() {
+    return !!getToken()
+  },
+
+  // 用户名密码注册
+  register(username, password) {
+    return request('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ username, password })
+    })
+  },
+
+  // 用户名密码登录
+  login(username, password) {
+    return request('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password })
+    })
+  },
+
+  // 小程序登录
+  wechatMiniLogin(code) {
+    return request('/api/auth/wechat-mini', {
+      method: 'POST',
+      body: JSON.stringify({ code })
+    })
+  },
+
+  // 开发环境模拟登录（跳过微信）
+  mockLogin() {
+    return request('/api/auth/mock-login', { method: 'POST' })
+  },
+
+  // 绑定手机号
+  bindPhone(phone) {
+    return request('/api/auth/bind-phone', {
+      method: 'POST',
+      body: JSON.stringify({ phone })
+    })
+  },
+
+  // 获取当前用户信息 + 账本列表
+  getMe() {
+    return request('/api/auth/me')
+  },
+
+  // ====== v2: 账本 ======
+  getLedgers() {
+    return request('/api/ledgers')
+  },
+  createLedger(data) {
+    return request('/api/ledgers', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  },
+  updateLedger(id, data) {
+    return request(`/api/ledgers/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    })
+  },
+  deleteLedger(id) {
+    return request(`/api/ledgers/${id}`, { method: 'DELETE' })
+  },
+
+  // ====== 聊天 ======
   chat(message) {
     return request('/api/chat', {
       method: 'POST',
@@ -49,7 +139,7 @@ export const api = {
     })
   },
 
-  // 记录
+  // ====== v2: 记录（多维筛选） ======
   getRecords(params = {}) {
     const qs = new URLSearchParams(params).toString()
     return request(`/api/records?${qs}`)
@@ -57,6 +147,12 @@ export const api = {
   createRecord(data) {
     return request('/api/records', {
       method: 'POST',
+      body: JSON.stringify(data)
+    })
+  },
+  updateRecord(id, data) {
+    return request(`/api/records/${id}`, {
+      method: 'PUT',
       body: JSON.stringify(data)
     })
   },
@@ -88,8 +184,55 @@ export const api = {
       body: JSON.stringify({ ocrSessionId })
     })
   },
+  importRecords(csv) {
+    return request('/api/records/import', {
+      method: 'POST',
+      body: JSON.stringify({ csv })
+    })
+  },
 
-  // 报告
+  // ====== v2: 报表 ======
+  getReportTimerange(period = 'month') {
+    return request(`/api/reports/timerange?period=${period}`)
+  },
+  getReportSummary(params = {}) {
+    const qs = new URLSearchParams(params).toString()
+    return request(`/api/reports/summary?${qs}`)
+  },
+  generateReport(data) {
+    return request('/api/reports/generate', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  },
+  getReportHistory() {
+    return request('/api/reports/history')
+  },
+  shareReport(id) {
+    return request(`/api/reports/share/${id}`, { method: 'POST' })
+  },
+
+  // ====== v2: 导出 ======
+  exportExcel(params = {}) {
+    const qs = new URLSearchParams(params).toString()
+    return downloadBlob(`/api/export/excel?${qs}`, 'report.xlsx')
+  },
+  exportPdf(params = {}) {
+    const qs = new URLSearchParams(params).toString()
+    return downloadBlob(`/api/export/pdf?${qs}`, 'report.pdf')
+  },
+  exportImage(params = {}) {
+    const qs = new URLSearchParams(params).toString()
+    return downloadBlob(`/api/export/image?${qs}`, 'report.png')
+  },
+  createShareUrl(data) {
+    return request('/api/export/share', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  },
+
+  // ====== 旧版兼容（仍可用） ======
   getMonthlyReport(month) {
     const qs = month ? `?month=${month}` : ''
     return request(`/api/reports/monthly${qs}`)
@@ -105,9 +248,10 @@ export const api = {
     return request('/api/reports/today')
   },
 
-  // 目标
-  getGoals() {
-    return request('/api/goals')
+  // ====== 目标 ======
+  getGoals(ledgerId) {
+    const qs = ledgerId ? `?ledgerId=${ledgerId}` : ''
+    return request(`/api/goals${qs}`)
   },
   createGoal(data) {
     return request('/api/goals', {
@@ -124,8 +268,9 @@ export const api = {
   deleteGoal(id) {
     return request(`/api/goals/${id}`, { method: 'DELETE' })
   },
-  getBudgets() {
-    return request('/api/goals/budgets')
+  getBudgets(ledgerId) {
+    const qs = ledgerId ? `?ledgerId=${ledgerId}` : ''
+    return request(`/api/goals/budgets${qs}`)
   },
   setBudget(data) {
     return request('/api/goals/budgets', {
@@ -134,7 +279,7 @@ export const api = {
     })
   },
 
-  // 提醒
+  // ====== 提醒 + 订阅 ======
   getReminders(params = {}) {
     const qs = new URLSearchParams(params).toString()
     return request(`/api/reminders${qs ? `?${qs}` : ''}`)
@@ -151,8 +296,43 @@ export const api = {
   markAllRead() {
     return request('/api/reminders/read-all', { method: 'PUT' })
   },
+  subscribeMessage(openid) {
+    return request('/api/reminders/subscribe', {
+      method: 'POST',
+      body: JSON.stringify({ openid })
+    })
+  },
 
-  // 反馈（支持 FormData 传递截图）
+  // ====== 识图上传（旧版兼容） ======
+  async uploadReceipt(file) {
+    const formData = new FormData()
+    formData.append('image', file)
+    const res = await fetch('/api/vision', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${getToken()}`,
+        'X-Device-Id': getDeviceId()
+      },
+      body: formData
+    })
+    return res.json()
+  },
+
+  // ====== 汇率 ======
+  getExchangeRates() {
+    return request('/api/exchange/latest')
+  },
+  getExchangeDetail(currency) {
+    return request(`/api/exchange/detail/${currency}`)
+  },
+  getExchangeAlerts() {
+    return request('/api/exchange/alerts')
+  },
+  getExchangeWeekly() {
+    return request('/api/exchange/weekly')
+  },
+
+  // ====== 反馈 ======
   submitFeedback(formData) {
     return request('/api/feedback', {
       method: 'POST',
@@ -176,32 +356,49 @@ export const api = {
     })
   },
 
-  // 识图上传
-  async uploadReceipt(file) {
+  // ====== 账单导入 ======
+  importUploadFile(file, ledgerId) {
     const formData = new FormData()
-    formData.append('image', file)
-    const res = await fetch('/api/vision', {
+    formData.append('file', file)
+    if (ledgerId) formData.append('ledgerId', ledgerId)
+    return request('/api/import/upload', {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${getToken()}`,
-        'X-Device-Id': getDeviceId()
-      },
       body: formData
     })
-    return res.json()
   },
-
-  // 汇率
-  getExchangeRates() {
-    return request('/api/exchange/latest')
+  importPaste(content, ledgerId) {
+    return request('/api/import/paste', {
+      method: 'POST',
+      body: JSON.stringify({ content, ledgerId })
+    })
   },
-  getExchangeDetail(currency) {
-    return request(`/api/exchange/detail/${currency}`)
+  getImportBatches(page = 1, pageSize = 20) {
+    return request(`/api/import/batches?page=${page}&pageSize=${pageSize}`)
   },
-  getExchangeAlerts() {
-    return request('/api/exchange/alerts')
+  getImportBatch(id) {
+    return request(`/api/import/${id}`)
   },
-  getExchangeWeekly() {
-    return request('/api/exchange/weekly')
+  updateImportRecord(batchId, recordId, updates) {
+    return request(`/api/import/${batchId}/records/${recordId}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates)
+    })
+  },
+  selectImportRecords(batchId, recordIds, selected) {
+    return request(`/api/import/${batchId}/select`, {
+      method: 'POST',
+      body: JSON.stringify({ recordIds, selected })
+    })
+  },
+  confirmImport(batchId, selectedIds) {
+    return request(`/api/import/${batchId}/confirm`, {
+      method: 'POST',
+      body: JSON.stringify({ selectedIds })
+    })
+  },
+  rollbackImport(batchId) {
+    return request(`/api/import/${batchId}/rollback`, {
+      method: 'POST'
+    })
   }
 }

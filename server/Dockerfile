@@ -1,19 +1,20 @@
-FROM node:22.21.1-alpine
+FROM node:18-alpine
 
-# better-sqlite3 原生编译所需工具链
-RUN apk add --no-cache python3 make g++ wget pkgconfig cairo-dev pango-dev pixman-dev jpeg-dev giflib-dev librsvg-dev
+RUN apk add --no-cache python3 make g++ pkgconfig \
+    cairo-dev pango-dev pixman-dev giflib-dev jpeg-dev freetype-dev
 
 WORKDIR /app
 
-# 依赖层（利用 Docker 缓存）
-COPY package.json package-lock.json ./
-RUN npm ci
+# Use Chinese mirrors for node-gyp headers (GFW workaround)
+ENV NODEJS_ORG_MIRROR=https://npmmirror.com/mirrors/node
 
-# 源代码
+COPY package*.json ./
+RUN npm config set registry https://registry.npmmirror.com && \
+    npm ci --only=production
+
 COPY src/ ./src/
 
-# 确保数据目录存在
-RUN mkdir -p /app/data
+RUN mkdir -p uploads
 
 EXPOSE 3000
 

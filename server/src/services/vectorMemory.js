@@ -39,7 +39,9 @@ export function recordToTextBlock(record) {
 }
 
 export function createVectorClient() {
-  return new QdrantClient({ url: config.vector.url })
+  const opts = { url: config.vector.url }
+  if (config.vector.apiKey) opts.apiKey = config.vector.apiKey
+  return new QdrantClient(opts)
 }
 
 export async function getEmbedding(text, { embeddingClient = defaultLmStudioClient } = {}) {

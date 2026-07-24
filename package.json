@@ -10,6 +10,7 @@
     "install:all": "npm install && cd server && npm install && cd ../client && npm install"
   },
   "devDependencies": {
-    "concurrently": "^8.2.2"
+    "concurrently": "^8.2.2",
+    "playwright": "^1.61.1"
   }
 }

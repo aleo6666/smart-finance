@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import multer from 'multer'
 import db from '../db.js'
+import { authMiddleware } from '../middleware/auth.js'
 
 const router = Router()
 
@@ -68,7 +69,7 @@ router.post('/survey', async (req, res) => {
   res.json({ success: true, message: '感谢你的评价！' })
 })
 
-router.get('/admin/all', async (req, res) => {
+router.get('/admin/all', authMiddleware, async (req, res) => {
   const query = db('feedback')
   if (req.query.priority) query.where('priority', req.query.priority)
   if (req.query.type) query.where('type', req.query.type)
@@ -77,7 +78,7 @@ router.get('/admin/all', async (req, res) => {
   res.json({ success: true, data: rows })
 })
 
-router.put('/admin/:id', async (req, res) => {
+router.put('/admin/:id', authMiddleware, async (req, res) => {
   const updates = {}
   for (const key of ['status', 'admin_reply', 'priority']) {
     if (req.body[key]) updates[key] = req.body[key]

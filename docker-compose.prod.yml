@@ -1,0 +1,68 @@
+# Smart Finance - 生产环境覆盖配置
+# 用法: docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+services:
+  mysql:
+    # 1.6G 小内存: 限制 MySQL 内存上限，配置小 buffer pool
+    command: >
+      --innodb-buffer-pool-size=64M
+      --innodb-log-buffer-size=8M
+      --innodb-flush-method=O_DIRECT
+      --performance-schema=OFF
+      --skip-log-bin
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+    deploy:
+      resources:
+        limits:
+          memory: 300M
+        reservations:
+          memory: 128M
+
+  redis:
+    command: redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru --save ""
+    deploy:
+      resources:
+        limits:
+          memory: 96M
+        reservations:
+          memory: 32M
+
+  qdrant:
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 64M
+
+  backend:
+    environment:
+      # 生产模式信任前端代理的 X-Forwarded-* 头
+      NODE_ENV: production
+      TRUST_PROXY: "true"
+    deploy:
+      resources:
+        limits:
+          memory: 350M
+        reservations:
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  frontend:
+    ports:
+      - "127.0.0.1:8080:80"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  mysql_data:
+  qdrant_data:
+  backend_uploads:

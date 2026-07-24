@@ -5,10 +5,12 @@ import App from './App.vue'
 import './style.css'
 
 const routes = [
+  { path: '/login', name: 'login', component: () => import('./components/LoginPage.vue') },
   { path: '/', name: 'chat', component: () => import('./components/ChatWindow.vue') },
   { path: '/reports', name: 'reports', component: () => import('./components/ReportPanel.vue') },
   { path: '/goals', name: 'goals', component: () => import('./components/GoalTracker.vue') },
-  { path: '/exchange', name: 'exchange', component: () => import('./components/ExchangePanel.vue') }
+  { path: '/exchange', name: 'exchange', component: () => import('./components/ExchangePanel.vue') },
+  { path: '/import', name: 'import', component: () => import('./components/ImportPage.vue') }
 ]
 
 const router = createRouter({

@@ -9,11 +9,18 @@ const db = knex({
     database: config.db.name,
     user: config.db.user,
     password: config.db.password,
+    charset: 'utf8mb4',
     multipleStatements: false
   },
   pool: {
     min: 0,
-    max: 10
+    max: 10,
+    afterCreate(conn, done) {
+      conn.query("SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci", (err) => {
+        if (err) return done(err, null)
+        done(null, conn)
+      })
+    }
   }
 })
 

@@ -6,14 +6,12 @@ services:
     environment:
       MYSQL_DATABASE: ${DB_NAME:-smart_finance}
       MYSQL_USER: ${DB_USER:-finance}
-      MYSQL_PASSWORD: ${DB_PASSWORD:-FinancePass2026!}
-      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-FinanceRoot2026!}
-    ports:
-      - "3307:3306"
+      MYSQL_PASSWORD: ${DB_PASSWORD:-change-me-db-password}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-change-me-root-password}
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u$${MYSQL_USER} -p$${MYSQL_PASSWORD} --silent"]
+      test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_PASSWORD mysqladmin ping -h localhost -u$${MYSQL_USER} --silent"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -22,8 +20,6 @@ services:
     image: redis:7-alpine
     container_name: finance-redis
     restart: unless-stopped
-    ports:
-      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -34,12 +30,10 @@ services:
     image: qdrant/qdrant:latest
     container_name: finance-qdrant
     restart: unless-stopped
-    ports:
-      - "6333:6333"
     volumes:
       - qdrant_data:/qdrant/storage
     healthcheck:
-      test: ["CMD", "wget", "--spider", "http://localhost:6333/health"]
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/6333'"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -59,8 +53,6 @@ services:
         condition: service_healthy
       qdrant:
         condition: service_healthy
-    ports:
-      - "3000:3000"
     volumes:
       - backend_uploads:/app/uploads
     environment:
@@ -70,17 +62,18 @@ services:
       DB_PORT: 3306
       DB_NAME: ${DB_NAME:-smart_finance}
       DB_USER: ${DB_USER:-finance}
-      DB_PASSWORD: ${DB_PASSWORD:-FinancePass2026!}
+      DB_PASSWORD: ${DB_PASSWORD:-change-me-db-password}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       VECTOR_DB_URL: http://qdrant:6333
       LM_STUDIO_BASE_URL: ${LM_STUDIO_BASE_URL:-http://host.docker.internal:1234/v1}
+      LM_STUDIO_API_KEY: ${LM_STUDIO_API_KEY:-}
       LM_STUDIO_CHAT_MODEL: ${LM_STUDIO_CHAT_MODEL:-qwen3.6-35b-a3b}
       LM_STUDIO_EMBEDDING_MODEL: ${LM_STUDIO_EMBEDDING_MODEL:-text-embedding-nomic-embed-text-v1.5}
       LM_STUDIO_EMBEDDING_TIMEOUT_MS: ${LM_STUDIO_EMBEDDING_TIMEOUT_MS:-10000}
       LM_STUDIO_CHAT_TIMEOUT_MS: ${LM_STUDIO_CHAT_TIMEOUT_MS:-120000}
       LM_STUDIO_LIST_MODELS_TIMEOUT_MS: ${LM_STUDIO_LIST_MODELS_TIMEOUT_MS:-5000}
-      RAG_ENABLED: ${RAG_ENABLED:-true}
+      RAG_ENABLED: ${RAG_ENABLED:-false}
       RAG_COLLECTION: ${RAG_COLLECTION:-finance_records_nomic_v1}
       RAG_TOP_K: ${RAG_TOP_K:-5}
       RAG_MAX_CONTEXT_CHARS: ${RAG_MAX_CONTEXT_CHARS:-6000}
@@ -90,7 +83,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:-}
       UPLOADS_DIR: /app/uploads
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
       interval: 30s
       timeout: 5s
       retries: 5
@@ -101,8 +94,6 @@ services:
       dockerfile: Dockerfile
     container_name: finance-frontend
     restart: unless-stopped
-    ports:
-      - "80:80"
     depends_on:
       backend:
         condition: service_healthy
@@ -111,3 +102,4 @@ volumes:
   mysql_data:
   qdrant_data:
   backend_uploads:
+
