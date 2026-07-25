@@ -135,7 +135,7 @@ export const api = {
   chat(message) {
     return request('/api/chat', {
       method: 'POST',
-      body: JSON.stringify({ message })
+      body: JSON.stringify({ message, use3Agent: true })
     })
   },
 
