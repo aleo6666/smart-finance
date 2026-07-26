@@ -46,6 +46,16 @@ function createFakeDb({ insertError = null } = {}) {
   return db
 }
 
+function createFailingDb({ insertError, selectError, updateError }) {
+  const db = () => ({
+    where() { return this },
+    async insert() { if (insertError) throw insertError },
+    async first() { if (selectError) throw selectError },
+    async update() { if (updateError) throw updateError; return 1 }
+  })
+  return db
+}
+
 test('operation hash is stable across object key order', () => {
   assert.equal(
     hashOperation({ type: 'record', input: { amount: 25, category: '交通' } }),
@@ -116,7 +126,7 @@ test('duplicate started operations report in progress and remain user isolated',
   })).status, 'owner')
 })
 
-test('operation store only maps real MySQL duplicate errors', async () => {
+test('operation store recognizes only real MySQL duplicate errors', async () => {
   for (const duplicate of [
     Object.assign(new Error('duplicate'), { code: 'ER_DUP_ENTRY' }),
     Object.assign(new Error('duplicate'), { errno: 1062 })
@@ -142,7 +152,10 @@ test('operation store only maps real MySQL duplicate errors', async () => {
       operationType: 'record_transaction',
       input: {}
     }),
-    error => error === ordinary
+    error =>
+      error.code === 'OPERATION_STORE_UNAVAILABLE' &&
+      error.statusCode === 503 &&
+      !error.message.includes(ordinary.message)
   )
 })
 
@@ -174,4 +187,94 @@ test('operation rows contain only a hash, and terminal updates require exact own
   })
   assert.equal(db.rows[0].status, 'failed')
   assert.equal(db.rows[0].result_json, null)
+})
+
+test('operation store maps database failures to a typed safe unavailable error', async () => {
+  const databaseMessage = 'mysql://finance:secret@internal'
+  const duplicate = Object.assign(new Error('duplicate'), { code: 'ER_DUP_ENTRY' })
+  const cases = [
+    () => createOperationStore(createFailingDb({
+      insertError: new Error(databaseMessage)
+    })).claim({
+      userId: 7,
+      operationId: 'operation-1',
+      operationType: 'record_transaction',
+      input: {}
+    }),
+    () => createOperationStore(createFailingDb({
+      insertError: duplicate,
+      selectError: new Error(databaseMessage)
+    })).claim({
+      userId: 7,
+      operationId: 'operation-1',
+      operationType: 'record_transaction',
+      input: {}
+    }),
+    () => createOperationStore(createFailingDb({
+      updateError: new Error(databaseMessage)
+    })).succeed({
+      userId: 7,
+      operationId: 'operation-1',
+      inputHash: '0'.repeat(64),
+      result: {}
+    }),
+    () => createOperationStore(createFailingDb({
+      updateError: new Error(databaseMessage)
+    })).fail({
+      userId: 7,
+      operationId: 'operation-1',
+      inputHash: '0'.repeat(64)
+    })
+  ]
+  for (const invoke of cases) {
+    await assert.rejects(
+      invoke(),
+      error =>
+        error.code === 'OPERATION_STORE_UNAVAILABLE' &&
+        error.statusCode === 503 &&
+        !error.message.includes('secret')
+    )
+  }
+})
+
+test('failed and unknown stored states never expose persisted database values', async () => {
+  for (const [status, errorCode] of [
+    ['failed', 'DATABASE_SECRET'],
+    ['unexpected', 'DATABASE_SECRET']
+  ]) {
+    const db = createFakeDb()
+    const store = createOperationStore(db)
+    const claim = await store.claim({
+      userId: 7,
+      operationId: `operation-${status}`,
+      operationType: 'record_transaction',
+      input: {}
+    })
+    db.rows[0].status = status
+    db.rows[0].error_code = errorCode
+    if (status === 'failed') {
+      assert.deepEqual(await store.claim({
+        userId: 7,
+        operationId: `operation-${status}`,
+        operationType: 'record_transaction',
+        input: {}
+      }), {
+        status: 'failed',
+        errorCode: 'OPERATION_FAILED'
+      })
+    } else {
+      await assert.rejects(
+        store.claim({
+          userId: 7,
+          operationId: `operation-${status}`,
+          operationType: 'record_transaction',
+          input: {}
+        }),
+        error =>
+          error.code === 'OPERATION_STORE_UNAVAILABLE' &&
+          !error.message.includes(errorCode)
+      )
+    }
+    assert.equal(claim.status, 'owner')
+  }
 })

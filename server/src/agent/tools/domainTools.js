@@ -1,8 +1,17 @@
 import { tool } from 'langchain'
 import { z } from 'zod'
+import db from '../../db.js'
 import { queryFinanceSummary as defaultQueryFinanceSummary } from '../../services/financeQuery.js'
-import { execute as defaultExecuteCalculation, CALCULATION_TYPES } from '../../services/calculatorAgent.js'
+import {
+  execute as defaultExecuteCalculation,
+  calculateBudgetExecution as defaultCalculateBudgetExecution,
+  CALCULATION_TYPES
+} from '../../services/calculatorAgent.js'
 import { recordFromPlannerTask as defaultRecordFromPlannerTask } from '../../services/recorderAgent.js'
+import {
+  retrieveBudgetConfig as defaultRetrieveBudgetConfig,
+  retrieveCategoryStats as defaultRetrieveCategoryStats
+} from '../../services/retrievalAgent.js'
 
 const calculationTypes = Object.values(CALCULATION_TYPES)
 
@@ -53,11 +62,118 @@ function calculationParams(type, dataset, input) {
   }
 }
 
-function missingBudgetAdapter() {
-  throw new DomainToolExecutionError(
-    'BUDGET_CHECK_UNAVAILABLE',
-    'budget check is unavailable'
+function normalizeDateRangeRecord(record) {
+  const amount = Number(record.amount_cny ?? record.amount ?? 0)
+  return {
+    ...record,
+    amount,
+    amount_cny: amount
+  }
+}
+
+function applyDateRangeFilters(query, { userId, hints }) {
+  query
+    .where('user_id', userId)
+    .where('date', '>=', hints.startDate)
+    .where('date', '<=', hints.endDate)
+  if (hints.category) query.where('category', hints.category)
+  if (hints.type) query.where('type', hints.type)
+  return query
+}
+
+export async function queryFinanceDateRange({
+  userId,
+  hints,
+  dbClient = db,
+  limit = 5
+}) {
+  const boundedLimit = Math.max(1, Math.min(50, Number.isInteger(limit) ? limit : 5))
+  const aggregateRows = await applyDateRangeFilters(dbClient('records'), {
+    userId,
+    hints
+  }).select(
+    dbClient.raw('COUNT(*) as count'),
+    dbClient.raw('SUM(COALESCE(amount_cny, amount)) as total')
   )
+  const aggregate = aggregateRows[0] || {}
+
+  const maxRows = await applyDateRangeFilters(dbClient('records'), {
+    userId,
+    hints
+  })
+    .orderByRaw('COALESCE(amount_cny, amount) DESC')
+    .limit(1)
+    .select()
+  const maxRecord = maxRows[0] ? normalizeDateRangeRecord(maxRows[0]) : null
+
+  const recordsQuery = applyDateRangeFilters(dbClient('records'), {
+    userId,
+    hints
+  })
+  if (hints.queryKind === 'largest') {
+    recordsQuery.orderByRaw('COALESCE(amount_cny, amount) DESC')
+  } else {
+    recordsQuery.orderBy('date', 'desc')
+  }
+  const records = (await recordsQuery.limit(boundedLimit).select())
+    .map(normalizeDateRangeRecord)
+  const count = Number(aggregate.count || 0)
+  const total = Number(aggregate.total || 0)
+  return {
+    hints,
+    count,
+    total,
+    average: count ? total / count : 0,
+    maxRecord,
+    records
+  }
+}
+
+export async function checkBudgetWithExistingServices({
+  userId,
+  month,
+  category,
+  retrieveBudgetConfig = defaultRetrieveBudgetConfig,
+  retrieveCategoryStats = defaultRetrieveCategoryStats,
+  calculateBudgetExecution = defaultCalculateBudgetExecution
+}) {
+  try {
+    const [budgetResult, statsResult] = await Promise.all([
+      retrieveBudgetConfig({ userId, month }),
+      retrieveCategoryStats({ userId, month })
+    ])
+    if (!budgetResult?.success || !statsResult?.success) {
+      throw new Error('retrieval failed')
+    }
+    const budgets = Array.isArray(budgetResult.data?.budgets)
+      ? budgetResult.data.budgets
+      : []
+    const stats = Array.isArray(statsResult.data?.stats)
+      ? statsResult.data.stats
+      : []
+    const categoryBudgets = category
+      ? budgets.filter(item => item.category === category)
+      : budgets
+    const categoryStats = category
+      ? stats.filter(item => item.category === category)
+      : stats
+    const result = calculateBudgetExecution({
+      budgets: categoryBudgets,
+      categoryStats,
+      totalSpending: categoryStats.reduce(
+        (sum, item) => sum + Number(item.total || 0),
+        0
+      ),
+      month
+    })
+    if (!result?.success) throw new Error('calculation failed')
+    return result
+  } catch {
+    throw new DomainToolExecutionError(
+      'BUDGET_CHECK_UNAVAILABLE',
+      'budget check is unavailable'
+    )
+  }
 }
 
 export function createDomainTools({
@@ -65,13 +181,16 @@ export function createDomainTools({
   datasetStore,
   operationStore,
   queryFinanceSummary = defaultQueryFinanceSummary,
+  queryFinanceDateRange: queryFinanceDateRangeAdapter = queryFinanceDateRange,
   executeCalculation = defaultExecuteCalculation,
-  checkBudget = missingBudgetAdapter,
+  checkBudget = checkBudgetWithExistingServices,
   recordFromPlannerTask = defaultRecordFromPlannerTask
 }) {
   const queryTransactions = tool(async input => {
     const scope = queryScope(input)
-    const summary = await queryFinanceSummary({
+    const summary = await (input.startDate
+      ? queryFinanceDateRangeAdapter
+      : queryFinanceSummary)({
       userId: runtime.userId,
       hints: scope
     })
@@ -92,6 +211,20 @@ export function createDomainTools({
       category: z.string().trim().min(1).max(64).optional(),
       type: z.enum(['income', 'expense']).optional(),
       queryKind: z.enum(['summary', 'recent', 'largest']).default('summary')
+    }).superRefine((value, context) => {
+      const hasStart = value.startDate !== undefined
+      const hasEnd = value.endDate !== undefined
+      if (hasStart !== hasEnd) {
+        context.addIssue({
+          code: 'custom',
+          message: 'startDate and endDate must be provided together'
+        })
+      } else if (hasStart && value.startDate > value.endDate) {
+        context.addIssue({
+          code: 'custom',
+          message: 'startDate must not be after endDate'
+        })
+      }
     })
   })
 

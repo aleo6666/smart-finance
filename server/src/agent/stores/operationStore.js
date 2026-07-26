@@ -34,6 +34,16 @@ export class OperationStateConflictError extends Error {
   }
 }
 
+export class OperationStoreUnavailableError extends Error {
+  constructor() {
+    super('operation store unavailable')
+    this.name = 'OperationStoreUnavailableError'
+    this.code = 'OPERATION_STORE_UNAVAILABLE'
+    this.statusCode = 503
+    this.expose = true
+  }
+}
+
 function stableJson(value, seen = new Set()) {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') {
     return JSON.stringify(value)
@@ -113,15 +123,20 @@ export function createOperationStore(db) {
         })
         return { status: 'owner', inputHash }
       } catch (error) {
-        if (!isMysqlDuplicate(error)) throw error
+        if (!isMysqlDuplicate(error)) throw new OperationStoreUnavailableError()
       }
 
-      const existing = await db('agent_operations')
-        .where({
-          user_id: trustedUserId,
-          operation_id: trustedOperationId
-        })
-        .first()
+      let existing
+      try {
+        existing = await db('agent_operations')
+          .where({
+            user_id: trustedUserId,
+            operation_id: trustedOperationId
+          })
+          .first()
+      } catch {
+        throw new OperationStoreUnavailableError()
+      }
       if (
         !existing ||
         existing.input_hash !== inputHash ||
@@ -136,10 +151,13 @@ export function createOperationStore(db) {
         }
       }
       if (existing.status === 'started') return { status: 'in_progress' }
-      return {
-        status: 'failed',
-        errorCode: existing.error_code || 'OPERATION_FAILED'
+      if (existing.status === 'failed') {
+        return {
+          status: 'failed',
+          errorCode: 'OPERATION_FAILED'
+        }
       }
+      throw new OperationStoreUnavailableError()
     },
 
     async succeed({
@@ -152,18 +170,24 @@ export function createOperationStore(db) {
       if (Buffer.byteLength(serialized, 'utf8') > MAX_RESULT_BYTES) {
         throw new OperationValidationError('operation result is too large')
       }
-      const count = await db('agent_operations')
-        .where({
-          user_id: normalizeTrustedUserId(userId),
-          operation_id: validateId(operationId, 'operationId'),
-          input_hash: validateId(inputHash, 'inputHash'),
-          status: 'started'
-        })
-        .update({
-          status: 'succeeded',
-          result_json: serialized,
-          error_code: null
-        })
+      const exact = {
+        user_id: normalizeTrustedUserId(userId),
+        operation_id: validateId(operationId, 'operationId'),
+        input_hash: validateId(inputHash, 'inputHash'),
+        status: 'started'
+      }
+      let count
+      try {
+        count = await db('agent_operations')
+          .where(exact)
+          .update({
+            status: 'succeeded',
+            result_json: serialized,
+            error_code: null
+          })
+      } catch {
+        throw new OperationStoreUnavailableError()
+      }
       if (count !== 1) throw new OperationStateConflictError()
     },
 
@@ -173,20 +197,26 @@ export function createOperationStore(db) {
       inputHash,
       errorCode = 'OPERATION_FAILED'
     }) {
-      const count = await db('agent_operations')
-        .where({
-          user_id: normalizeTrustedUserId(userId),
-          operation_id: validateId(operationId, 'operationId'),
-          input_hash: validateId(inputHash, 'inputHash'),
-          status: 'started'
-        })
-        .update({
-          status: 'failed',
-          result_json: null,
-          error_code: validateId(errorCode, 'errorCode')
-        })
+      const exact = {
+        user_id: normalizeTrustedUserId(userId),
+        operation_id: validateId(operationId, 'operationId'),
+        input_hash: validateId(inputHash, 'inputHash'),
+        status: 'started'
+      }
+      const trustedErrorCode = validateId(errorCode, 'errorCode')
+      let count
+      try {
+        count = await db('agent_operations')
+          .where(exact)
+          .update({
+            status: 'failed',
+            result_json: null,
+            error_code: trustedErrorCode
+          })
+      } catch {
+        throw new OperationStoreUnavailableError()
+      }
       if (count !== 1) throw new OperationStateConflictError()
     }
   }
 }
-

@@ -1,6 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createDomainTools } from '../../src/agent/tools/domainTools.js'
+import {
+  checkBudgetWithExistingServices,
+  createDomainTools,
+  queryFinanceDateRange
+} from '../../src/agent/tools/domainTools.js'
 import { CALCULATION_TYPES } from '../../src/services/calculatorAgent.js'
 
 function toolsByName(options) {
@@ -236,4 +240,189 @@ test('record failure marks the owned operation failed and exposes no internal er
     inputHash: 'hash-1',
     errorCode: 'RECORD_TRANSACTION_FAILED'
   })
+})
+
+test('budget adapter composes existing retrieval and deterministic calculator functions', async () => {
+  const calls = []
+  const result = await checkBudgetWithExistingServices({
+    userId: 7,
+    month: '2026-07',
+    category: '餐饮',
+    retrieveBudgetConfig: async input => {
+      calls.push(['budgets', input])
+      return {
+        success: true,
+        data: {
+          budgets: [
+            { category: '餐饮', amount: 1000 },
+            { category: '交通', amount: 300 }
+          ]
+        }
+      }
+    },
+    retrieveCategoryStats: async input => {
+      calls.push(['stats', input])
+      return {
+        success: true,
+        data: {
+          stats: [
+            { category: '餐饮', total: 850 },
+            { category: '交通', total: 100 }
+          ]
+        }
+      }
+    },
+    calculateBudgetExecution: input => {
+      calls.push(['calculate', input])
+      return { success: true, data: { warningCategories: ['餐饮'] } }
+    }
+  })
+  assert.deepEqual(calls, [
+    ['budgets', { userId: 7, month: '2026-07' }],
+    ['stats', { userId: 7, month: '2026-07' }],
+    ['calculate', {
+      budgets: [{ category: '餐饮', amount: 1000 }],
+      categoryStats: [{ category: '餐饮', total: 850 }],
+      totalSpending: 850,
+      month: '2026-07'
+    }]
+  ])
+  assert.deepEqual(result, {
+    success: true,
+    data: { warningCategories: ['餐饮'] }
+  })
+})
+
+test('budget adapter safely rejects failed existing retrievals', async () => {
+  await assert.rejects(
+    checkBudgetWithExistingServices({
+      userId: 7,
+      month: '2026-07',
+      retrieveBudgetConfig: async () => ({
+        success: false,
+        error: 'mysql password leaked'
+      }),
+      retrieveCategoryStats: async () => ({ success: true, data: { stats: [] } }),
+      calculateBudgetExecution: () => ({})
+    }),
+    error =>
+      error.code === 'BUDGET_CHECK_UNAVAILABLE' &&
+      !error.message.includes('password')
+  )
+})
+
+function createDateRangeDb() {
+  const calls = []
+  let queryNumber = 0
+  const results = [
+    [{ count: 2, total: 75 }],
+    [{ id: 2, amount: 50, amount_cny: 50 }],
+    [
+      { id: 2, amount: 50, amount_cny: 50 },
+      { id: 1, amount: 25, amount_cny: 25 }
+    ]
+  ]
+  const db = table => {
+    assert.equal(table, 'records')
+    const current = queryNumber++
+    const builder = {
+      where(...args) {
+        calls.push(['where', ...args])
+        return this
+      },
+      orderByRaw(...args) {
+        calls.push(['orderByRaw', ...args])
+        return this
+      },
+      orderBy(...args) {
+        calls.push(['orderBy', ...args])
+        return this
+      },
+      limit(value) {
+        calls.push(['limit', value])
+        return this
+      },
+      select(...args) {
+        calls.push(['select', ...args])
+        return Promise.resolve(structuredClone(results[current]))
+      }
+    }
+    return builder
+  }
+  db.raw = value => `RAW:${value}`
+  db.calls = calls
+  return db
+}
+
+test('date-range adapter uses parameterized user and inclusive date predicates', async () => {
+  const db = createDateRangeDb()
+  const result = await queryFinanceDateRange({
+    userId: 7,
+    hints: {
+      startDate: '2026-07-01',
+      endDate: '2026-07-31',
+      category: '餐饮',
+      type: 'expense',
+      queryKind: 'recent'
+    },
+    dbClient: db,
+    limit: 5
+  })
+  const serialized = JSON.stringify(db.calls)
+  assert.equal(serialized.includes('["where","user_id",7]'), true)
+  assert.equal(serialized.includes('["where","date",">=","2026-07-01"]'), true)
+  assert.equal(serialized.includes('["where","date","<=","2026-07-31"]'), true)
+  assert.equal(serialized.includes('["where","category","餐饮"]'), true)
+  assert.equal(serialized.includes('["where","type","expense"]'), true)
+  assert.equal(serialized.includes('COALESCE(amount_cny, amount)'), true)
+  assert.equal(result.count, 2)
+  assert.equal(result.total, 75)
+  assert.equal(result.records.length, 2)
+})
+
+test('query tool routes paired date ranges away from the legacy month query', async () => {
+  let legacyCalls = 0
+  const rangeCalls = []
+  const tools = toolsByName({
+    runtime: { userId: 7, requestId: 'request-1', operationId: 'operation-1' },
+    queryFinanceSummary: async () => { legacyCalls += 1 },
+    queryFinanceDateRange: async input => {
+      rangeCalls.push(input)
+      return { count: 0, total: 0, records: [] }
+    },
+    datasetStore: {
+      async put(input) {
+        return { datasetRef: 'ds-1', count: 0, scope: input.scope }
+      }
+    },
+    operationStore: {}
+  })
+  await tools.query_transactions.invoke({
+    startDate: '2026-07-01',
+    endDate: '2026-07-31'
+  })
+  assert.equal(legacyCalls, 0)
+  assert.deepEqual(rangeCalls[0], {
+    userId: 7,
+    hints: {
+      startDate: '2026-07-01',
+      endDate: '2026-07-31',
+      queryKind: 'summary'
+    }
+  })
+})
+
+test('query tool requires a complete ordered date range', async () => {
+  const tools = toolsByName({
+    runtime: { userId: 7, requestId: 'request-1', operationId: 'operation-1' },
+    datasetStore: {},
+    operationStore: {}
+  })
+  for (const input of [
+    { startDate: '2026-07-01' },
+    { endDate: '2026-07-31' },
+    { startDate: '2026-07-31', endDate: '2026-07-01' }
+  ]) {
+    await assert.rejects(tools.query_transactions.invoke(input))
+  }
 })
