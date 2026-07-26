@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { HumanMessage } from '@langchain/core/messages'
 import { END, START, StateGraph } from '@langchain/langgraph'
 import { AgentState } from '../../src/agent/state.js'
+import { RuntimeContextValidationError } from '../../src/agent/runtime.js'
 import {
   createNormalizeRequestNode,
   detectCompositeIntent
@@ -41,6 +42,10 @@ test('detectCompositeIntent recognizes bounded finance query phrases', () => {
 
 test('detectCompositeIntent recognizes an amount-less categorized record clarification', () => {
   assert.equal(detectCompositeIntent('昨天有一笔餐饮支出'), 'record')
+})
+
+test('detectCompositeIntent ignores a negated categorized record phrase', () => {
+  assert.equal(detectCompositeIntent('这个月没有一笔餐饮支出'), 'chat')
 })
 
 test('normalize request overwrites model-controlled identity with LangGraph config context', async () => {
@@ -195,6 +200,27 @@ test('normalize request rejects boolean runtime user identity', async () => {
       }
     }),
     /positive integer/i
+  )
+})
+
+test('normalize request rejects an unsafe runtime session id with the shared safe error', async () => {
+  const node = createNormalizeRequestNode({ now: () => 550 })
+
+  await assert.rejects(
+    node({
+      messages: [{ role: 'user', content: '你好' }]
+    }, {
+      context: {
+        userId: 7,
+        sessionId: 'bad/session',
+        isAdmin: false
+      }
+    }),
+    error => error instanceof RuntimeContextValidationError &&
+      error.code === 'ERR_INVALID_RUNTIME_CONTEXT' &&
+      error.statusCode === 400 &&
+      error.expose === true &&
+      /sessionId/.test(error.message)
   )
 })
 

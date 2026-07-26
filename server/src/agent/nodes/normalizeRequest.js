@@ -1,4 +1,5 @@
 import {
+  normalizeTrustedSessionId,
   normalizeTrustedUserId,
   RuntimeContextValidationError
 } from '../runtime.js'
@@ -13,7 +14,7 @@ const CANONICAL_INTENT_ORDER = [
 ]
 
 function hasRecordIntent(text) {
-  return /记(?:一|1)笔|记账|(?:花了|消费了)\s*\d+(?:\.\d+)?(?:元|块)?|(?:收入|支出)\s*\d+(?:\.\d+)?(?:元|块)?|有一笔(?:餐饮|交通|购物|娱乐|医疗|住房)支出/.test(text)
+  return /记(?:一|1)笔|记账|(?:花了|消费了)\s*\d+(?:\.\d+)?(?:元|块)?|(?:收入|支出)\s*\d+(?:\.\d+)?(?:元|块)?|(?<!没)有一笔(?:餐饮|交通|购物|娱乐|医疗|住房)支出/.test(text)
 }
 
 function hasQueryIntent(text) {
@@ -97,10 +98,7 @@ function requiredRuntimeContext(config) {
   }
 
   const userId = normalizeTrustedUserId(context.userId)
-  const sessionId = typeof context.sessionId === 'string' ? context.sessionId.trim() : ''
-  if (!sessionId || sessionId.length > 128) {
-    throw new RuntimeContextValidationError('runtime context sessionId is invalid')
-  }
+  const sessionId = normalizeTrustedSessionId(context.sessionId)
 
   return { ...context, userId, sessionId }
 }

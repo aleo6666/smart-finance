@@ -30,8 +30,8 @@ function trimmedString(value) {
   return String(value).trim()
 }
 
-function normalizeSessionId(req) {
-  const sessionId = trimmedString(req?.sessionId)
+export function normalizeTrustedSessionId(value) {
+  const sessionId = trimmedString(value)
   if (!sessionId) {
     throw new RuntimeContextValidationError('sessionId is required')
   }
@@ -97,7 +97,7 @@ export function buildRuntimeContext({
 
   return Object.freeze({
     userId: numericUserId,
-    sessionId: normalizeSessionId(req),
+    sessionId: normalizeTrustedSessionId(req?.sessionId),
     requestId,
     operationId,
     isAdmin: isAdmin === true,
