@@ -1,4 +1,7 @@
-import { RuntimeContextValidationError } from '../runtime.js'
+import {
+  normalizeTrustedUserId,
+  RuntimeContextValidationError
+} from '../runtime.js'
 
 const CANONICAL_INTENT_ORDER = [
   'record',
@@ -10,11 +13,11 @@ const CANONICAL_INTENT_ORDER = [
 ]
 
 function hasRecordIntent(text) {
-  return /记(?:一|1)笔|记账|花了|消费了|(?:餐饮|交通|购物|娱乐|医疗|住房)?支出(?:[，,。.\s]|$)|收入(?:[，,。.\s]|$)/.test(text)
+  return /记(?:一|1)笔|记账|(?:花了|消费了)\s*\d+(?:\.\d+)?(?:元|块)?|(?:收入|支出)\s*\d+(?:\.\d+)?(?:元|块)?/.test(text)
 }
 
 function hasQueryIntent(text) {
-  return /查询|查|看看|明细|哪些账|多少笔/.test(text)
+  return /查询|查(?:本月|上月|这个月|上个月|账单|明细)|看看|明细|哪些账|多少笔/.test(text)
 }
 
 function hasStatIntent(text) {
@@ -72,7 +75,7 @@ function currentUserText(messages) {
     const role = message?.role ?? message?._getType?.()
     return role === 'user' || role === 'human'
   })
-  return messageText(lastUserMessage ?? messages.at(-1))
+  return messageText(lastUserMessage)
 }
 
 function isObjectMap(value) {
@@ -93,11 +96,8 @@ function requiredRuntimeContext(config) {
     throw new RuntimeContextValidationError('LangGraph runtime context is required')
   }
 
-  const userId = Number(context.userId)
+  const userId = normalizeTrustedUserId(context.userId)
   const sessionId = typeof context.sessionId === 'string' ? context.sessionId.trim() : ''
-  if (!Number.isInteger(userId) || userId <= 0) {
-    throw new RuntimeContextValidationError('runtime context userId must be a positive integer')
-  }
   if (!sessionId || sessionId.length > 128) {
     throw new RuntimeContextValidationError('runtime context sessionId is invalid')
   }

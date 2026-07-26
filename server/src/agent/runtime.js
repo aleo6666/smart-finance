@@ -32,8 +32,7 @@ function trimmedString(value) {
 
 function normalizeSessionId(req) {
   const candidates = [
-    req?.body?.sessionId,
-    readHeader(req, 'x-session-id'),
+    req?.sessionId,
     req?.deviceId
   ]
 
@@ -47,6 +46,14 @@ function normalizeSessionId(req) {
   }
 
   throw new RuntimeContextValidationError('sessionId is required')
+}
+
+export function normalizeTrustedUserId(userId) {
+  const numericUserId = typeof userId === 'boolean' ? Number.NaN : Number(userId)
+  if (!Number.isInteger(numericUserId) || numericUserId <= 0) {
+    throw new RuntimeContextValidationError('userId must be a positive integer')
+  }
+  return numericUserId
 }
 
 function normalizeGeneratedId(randomId, fieldName) {
@@ -83,16 +90,17 @@ export function buildRuntimeContext({
   isAdmin,
   randomId = randomUUID
 }) {
-  const numericUserId = typeof userId === 'boolean' ? Number.NaN : Number(userId)
-  if (!Number.isInteger(numericUserId) || numericUserId <= 0) {
-    throw new RuntimeContextValidationError('userId must be a positive integer')
-  }
-
+  const numericUserId = normalizeTrustedUserId(userId)
   const requestId = normalizeGeneratedId(randomId, 'requestId')
   const requestedOperationId = trimmedString(readHeader(req, 'x-idempotency-key'))
-  const operationId = requestedOperationId && requestedOperationId.length <= 64
-    ? requestedOperationId
-    : normalizeGeneratedId(randomId, 'operationId')
+  let operationId
+  if (!requestedOperationId) {
+    operationId = normalizeGeneratedId(randomId, 'operationId')
+  } else if (/^[A-Za-z0-9._:-]{1,64}$/.test(requestedOperationId)) {
+    operationId = requestedOperationId
+  } else {
+    throw new RuntimeContextValidationError('x-idempotency-key is invalid')
+  }
 
   return Object.freeze({
     userId: numericUserId,

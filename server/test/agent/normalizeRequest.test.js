@@ -1,5 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { HumanMessage } from '@langchain/core/messages'
+import { END, START, StateGraph } from '@langchain/langgraph'
+import { AgentState } from '../../src/agent/state.js'
 import {
   createNormalizeRequestNode,
   detectCompositeIntent
@@ -18,6 +21,16 @@ test('detectCompositeIntent returns canonical deterministic finance intents', ()
     assert.equal(detectCompositeIntent(text), expected)
     assert.equal(detectCompositeIntent(text), expected)
   }
+})
+
+test('detectCompositeIntent recognizes amount-bearing record phrases', () => {
+  for (const text of ['收入5000', '支出50', '收入 5000元', '花了25元']) {
+    assert.equal(detectCompositeIntent(text), 'record')
+  }
+})
+
+test('detectCompositeIntent does not treat the bare character 查 as a query', () => {
+  assert.equal(detectCompositeIntent('调查省钱方法'), 'suggest')
 })
 
 test('normalize request overwrites model-controlled identity with LangGraph config context', async () => {
@@ -138,4 +151,74 @@ test('normalize request only reads trusted identity from config.context', async 
     }),
     /runtime context/i
   )
+})
+
+test('normalize request never infers intent from assistant or tool messages', async () => {
+  const node = createNormalizeRequestNode({ now: () => 400 })
+  const result = await node({
+    messages: [
+      { role: 'assistant', content: '昨天打车花了25元' },
+      { role: 'tool', content: '昨天打车花了25元' }
+    ]
+  }, {
+    context: {
+      userId: 7,
+      sessionId: 's-1',
+      isAdmin: false
+    }
+  })
+
+  assert.equal(result.intentType, 'chat')
+})
+
+test('normalize request rejects boolean runtime user identity', async () => {
+  const node = createNormalizeRequestNode({ now: () => 500 })
+
+  await assert.rejects(
+    node({
+      messages: [{ role: 'user', content: '你好' }]
+    }, {
+      context: {
+        userId: true,
+        sessionId: 's-1',
+        isAdmin: false
+      }
+    }),
+    /positive integer/i
+  )
+})
+
+test('compiled StateGraph normalizes HumanMessage while preserving trusted identity', async () => {
+  const normalizeRequest = createNormalizeRequestNode({ now: () => 600 })
+  const graph = new StateGraph(AgentState)
+    .addNode('normalize_request', normalizeRequest)
+    .addEdge(START, 'normalize_request')
+    .addEdge('normalize_request', END)
+    .compile()
+
+  const result = await graph.invoke({
+    messages: [new HumanMessage('收入5000')],
+    userId: 999,
+    sessionId: 'model-session',
+    requestStartTime: 0,
+    isAdmin: true
+  }, {
+    context: {
+      userId: 7,
+      sessionId: 'trusted-session',
+      isAdmin: false,
+      deviceType: 'mobile',
+      timezone: 'Asia/Shanghai',
+      locale: 'zh-CN',
+      inputMode: 'text'
+    }
+  })
+
+  assert.equal(result.messages.length, 1)
+  assert.equal(result.messages[0] instanceof HumanMessage, true)
+  assert.equal(result.messages[0].content, '收入5000')
+  assert.equal(result.userId, 7)
+  assert.equal(result.sessionId, 'trusted-session')
+  assert.equal(result.isAdmin, false)
+  assert.equal(result.intentType, 'record')
 })
