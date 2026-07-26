@@ -272,6 +272,10 @@ export function createAgentGraph({
     (state.errors ?? []).some(item => item?.fatal === true)
       ? 'finalize_response'
       : 'domain_tools'
+  const routeDomainTools = state =>
+    (state.errors ?? []).some(item => item?.fatal === true)
+      ? 'finalize_response'
+      : 'call_model'
 
   const graph = new StateGraph(AgentState)
     .addNode('normalize_request', normalizeRequest)
@@ -297,7 +301,10 @@ export function createAgentGraph({
       'domain_tools',
       'finalize_response'
     ])
-    .addEdge('domain_tools', 'call_model')
+    .addConditionalEdges('domain_tools', routeDomainTools, [
+      'call_model',
+      'finalize_response'
+    ])
     .addEdge('finalize_response', 'post_turn_memory')
     .addEdge('post_turn_memory', 'observe')
     .addEdge('observe', END)

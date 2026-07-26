@@ -118,8 +118,10 @@ test('compiled graph without tool calls finalizes, posts memory and observes', a
 
 test('compiled graph executes an allowed tool and loops back without persisting system prompts', async () => {
   let toolCalls = 0
-  const echo = tool(async ({ value }) => {
+  let receivedRuntime
+  const echo = tool(async ({ value }, toolRuntime) => {
     toolCalls += 1
+    receivedRuntime = toolRuntime
     return { echoed: value }
   }, {
     name: 'echo_finance',
@@ -145,6 +147,8 @@ test('compiled graph executes an allowed tool and loops back without persisting 
   const result = await invoke(graph)
 
   assert.equal(toolCalls, 1)
+  assert.equal(receivedRuntime.context.requestId, 'request-7')
+  assert.equal(receivedRuntime.configurable.thread_id, '7:session-7')
   assert.equal(result.toolCallCount, 1)
   assert.equal(calls.invocations.length, 2)
   assert.equal(calls.invocations[1].messages.filter(
@@ -152,6 +156,57 @@ test('compiled graph executes an allowed tool and loops back without persisting 
   ).length, 1)
   assert.equal(result.messages.some(message => message._getType() === 'system'), false)
   assert.equal(result.response.message, '工具执行完成')
+})
+
+test('ToolNode-level failures finalize without invoking the model again', async () => {
+  let schemaChecks = 0
+  let toolCalls = 0
+  const unstableSchema = z.object({ value: z.string() }).superRefine(
+    (_value, context) => {
+      schemaChecks += 1
+      if (schemaChecks > 1) {
+        context.addIssue({
+          code: 'custom',
+          message: 'internal schema detail must stay private'
+        })
+      }
+    }
+  )
+  const unstable = tool(async () => {
+    toolCalls += 1
+    return 'must-not-run'
+  }, {
+    name: 'unstable_tool',
+    description: 'fails between validation and ToolNode execution',
+    schema: unstableSchema
+  })
+  const nodeCalls = []
+  const { graph, calls } = createGraphFixture({
+    tools: [unstable],
+    outputs: [
+      new AIMessage({
+        content: '',
+        tool_calls: [{
+          id: 'unstable-1',
+          name: 'unstable_tool',
+          args: { value: 'ok' },
+          type: 'tool_call'
+        }]
+      }),
+      new AIMessage('model must not be invoked again')
+    ],
+    postTurnMemory: async () => { nodeCalls.push('post') },
+    observe: async () => { nodeCalls.push('observe') }
+  })
+
+  const result = await invoke(graph)
+
+  assert.equal(schemaChecks, 2)
+  assert.equal(toolCalls, 0)
+  assert.equal(calls.invocations.length, 1)
+  assert.deepEqual(nodeCalls, ['post', 'observe'])
+  assert.deepEqual(result.response.errorCodes, ['TOOL_EXECUTION_FAILED'])
+  assert.equal(result.response.errorCodes.includes('MODEL_UNAVAILABLE'), false)
 })
 
 test('memory loading does not duplicate the current message from L4', async () => {
