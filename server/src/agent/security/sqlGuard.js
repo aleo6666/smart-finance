@@ -111,7 +111,15 @@ function andExpressions(expressions) {
 }
 
 function validateAndScopeSelect(ast) {
-  if (!ast || ast.type !== 'select' || ast.with) reject()
+  if (
+    !ast ||
+    ast.type !== 'select' ||
+    ast.with ||
+    ast._next ||
+    ast.set_op
+  ) {
+    reject()
+  }
   if (ast.options || ast.locking_read || ast.window) reject()
   if (ast.into && ast.into.position) reject()
   if (!Array.isArray(ast.from) || ast.from.length === 0) reject()
@@ -136,12 +144,6 @@ function validateAndScopeSelect(ast) {
     : null
   ast.where = andExpressions([modelPredicate, trustedScope].filter(Boolean))
 
-  if (ast._next) {
-    if (!/^union(?:\s+all)?$/i.test(String(ast.set_op || ''))) reject()
-    validateAndScopeSelect(ast._next)
-  } else if (ast.set_op) {
-    reject()
-  }
 }
 
 function positiveInteger(value) {
@@ -149,9 +151,7 @@ function positiveInteger(value) {
 }
 
 function limitTarget(ast) {
-  let target = ast
-  while (target._next) target = target._next
-  return target
+  return ast
 }
 
 function enforceLimit(ast, maxRows) {

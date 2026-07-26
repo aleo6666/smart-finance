@@ -53,11 +53,74 @@ function trustedGate({ runtime, context, config }) {
     config?.agent?.adminSqlEnabled === true
 }
 
+function normalizeJsonValue(value, seen = new Set()) {
+  if (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'boolean'
+  ) {
+    return value
+  }
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) throw unavailable()
+    return value
+  }
+  if (typeof value === 'bigint') return value.toString()
+  if (value instanceof Date) {
+    if (!Number.isFinite(value.getTime())) throw unavailable()
+    return value.toISOString()
+  }
+  if (!value || typeof value !== 'object' || seen.has(value)) {
+    throw unavailable()
+  }
+
+  seen.add(value)
+  try {
+    if (Array.isArray(value)) {
+      return Array.from(value, item => normalizeJsonValue(item, seen))
+    }
+    const prototype = Object.getPrototypeOf(value)
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw unavailable()
+    }
+    const entries = Reflect.ownKeys(value).map(key => {
+      if (typeof key !== 'string') throw unavailable()
+      const descriptor = Object.getOwnPropertyDescriptor(value, key)
+      if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) {
+        throw unavailable()
+      }
+      return [key, normalizeJsonValue(descriptor.value, seen)]
+    })
+    return Object.fromEntries(entries)
+  } finally {
+    seen.delete(value)
+  }
+}
+
+function readonlyPoolOptions(config) {
+  const sqlConfig = config?.adminSql ?? {}
+  if (!sqlConfig.user || typeof sqlConfig.password !== 'string') {
+    throw unavailable()
+  }
+  return {
+    host: sqlConfig.host,
+    port: sqlConfig.port,
+    database: sqlConfig.name,
+    user: sqlConfig.user,
+    password: sqlConfig.password,
+    connectionLimit: 1,
+    dateStrings: true,
+    supportBigNumbers: true,
+    bigNumberStrings: true
+  }
+}
+
 export function createAdminSqlTool({
   runtime,
   config = defaultConfig,
   datasetStore,
   createPool = mysql.createPool,
+  pool: externalPool,
   logger = createLogger('AdminSqlTool'),
   guard = guardAdminSql
 }) {
@@ -66,23 +129,6 @@ export function createAdminSqlTool({
   }
   if (!datasetStore || typeof datasetStore.put !== 'function') {
     throw new TypeError('datasetStore must provide put')
-  }
-
-  let pool
-  const getPool = () => {
-    const sqlConfig = config?.adminSql ?? {}
-    if (!sqlConfig.user || typeof sqlConfig.password !== 'string') {
-      throw unavailable()
-    }
-    pool ??= createPool({
-      host: sqlConfig.host,
-      port: sqlConfig.port,
-      database: sqlConfig.name,
-      user: sqlConfig.user,
-      password: sqlConfig.password,
-      connectionLimit: 1
-    })
-    return pool
   }
 
   return tool(async (input, toolRuntime) => {
@@ -106,17 +152,34 @@ export function createAdminSqlTool({
       throw new AdminSqlRejectedError()
     }
 
+    let executionPool
+    let ownsPool = false
     try {
+      if (externalPool) {
+        executionPool = externalPool
+      } else {
+        executionPool = createPool(readonlyPoolOptions(config))
+        ownsPool = true
+      }
+      if (
+        !executionPool ||
+        typeof executionPool.query !== 'function' ||
+        (ownsPool && typeof executionPool.end !== 'function')
+      ) {
+        throw unavailable()
+      }
       const bindings = Array(
         (normalizedSql.match(/\?/g) ?? []).length
       ).fill(runtime.userId)
-      const [queryRows] = await getPool().query({
+      const [queryRows] = await executionPool.query({
         sql: normalizedSql,
         values: bindings,
         timeout: config.adminSql.timeoutMs
       })
       if (!Array.isArray(queryRows)) throw unavailable()
-      const rows = queryRows.slice(0, config.adminSql.maxRows)
+      const rows = normalizeJsonValue(
+        queryRows.slice(0, config.adminSql.maxRows)
+      )
       const reference = await datasetStore.put({
         userId: runtime.userId,
         requestId: runtime.requestId,
@@ -143,6 +206,14 @@ export function createAdminSqlTool({
         errorCode: safeError.code
       })
       throw safeError
+    } finally {
+      if (ownsPool && typeof executionPool?.end === 'function') {
+        try {
+          await executionPool.end()
+        } catch {
+          // Pool shutdown must never replace the query outcome.
+        }
+      }
     }
   }, {
     name: 'admin_read_only_sql',

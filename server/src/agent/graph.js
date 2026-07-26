@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import {
   AIMessage,
   RemoveMessage,
@@ -90,42 +91,6 @@ function toolResult(message) {
   } catch {
     return null
   }
-}
-
-function currentTurnMessages(messages) {
-  if (!Array.isArray(messages)) return []
-  const lastUserIndex = messages.findLastIndex(message => {
-    const type = message?._getType?.() ?? message?.role
-    return type === 'human' || type === 'user'
-  })
-  return messages.slice(lastUserIndex + 1)
-}
-
-function hasTrustedDomainGap(state, domainToolNames) {
-  const requestedDomainCalls = new Map()
-  for (const message of currentTurnMessages(state?.messages)) {
-    if (isAIMessage(message) && Array.isArray(message.tool_calls)) {
-      for (const call of message.tool_calls) {
-        if (
-          typeof call?.id === 'string' &&
-          domainToolNames.has(call?.name)
-        ) {
-          requestedDomainCalls.set(call.id, call.name)
-        }
-      }
-      continue
-    }
-    const expectedTool = requestedDomainCalls.get(message?.tool_call_id)
-    const result = toolResult(message)
-    if (
-      expectedTool &&
-      message.name === expectedTool &&
-      result?.status === 'unsupported_depth'
-    ) {
-      return true
-    }
-  }
-  return false
 }
 
 function analysisIntent(value) {
@@ -418,6 +383,7 @@ export function createAgentGraph({
   }
   if (!Array.isArray(tools)) throw new TypeError('tools must be an array')
 
+  const invocationProvenance = new AsyncLocalStorage()
   const maxToolCalls = config?.agent?.maxToolCalls
   const adminTools = tools.filter(isAdminSqlTool)
   const baseTools = tools.filter(item => !isAdminSqlTool(item))
@@ -429,7 +395,7 @@ export function createAgentGraph({
     config?.agent?.adminSqlEnabled === true &&
     state?.isAdmin === true &&
     analysisIntent(state?.intentType) &&
-    hasTrustedDomainGap(state, domainToolNames)
+    invocationProvenance.getStore()?.domainGap === 'unsupported_depth'
   const baseValidateToolCall = createValidateToolCallNode({
     tools,
     datasetStore,
@@ -481,6 +447,12 @@ export function createAgentGraph({
     }
   }
 
+  const normalizeRequestScoped = async (state, graphConfig) => {
+    const provenance = invocationProvenance.getStore()
+    if (provenance) provenance.domainGap = null
+    return normalizeRequest(state, graphConfig)
+  }
+
   const callModel = async (state, graphConfig) => {
     try {
       const selectedModel = adminSqlReachable(state)
@@ -517,6 +489,13 @@ export function createAgentGraph({
         : graphConfig
       const output = await toolNode.invoke(state, executionConfig)
       const messages = Array.isArray(output?.messages) ? output.messages : []
+      if (messages.some(message =>
+        domainToolNames.has(message?.name) &&
+        toolResult(message)?.status === 'unsupported_depth'
+      )) {
+        const provenance = invocationProvenance.getStore()
+        if (provenance) provenance.domainGap = 'unsupported_depth'
+      }
       const addedRefs = metadataFromToolMessages(messages)
       return {
         ...output,
@@ -753,7 +732,7 @@ export function createAgentGraph({
   }
 
   const graph = new StateGraph(AgentState)
-    .addNode('normalize_request', normalizeRequest)
+    .addNode('normalize_request', normalizeRequestScoped)
     .addNode('load_memory_context', createLoadMemoryNode(loadMemoryContext))
     .addNode('compose_prompt', composePrompt)
     .addNode('call_model', callModel)
@@ -802,5 +781,12 @@ export function createAgentGraph({
     .addEdge('post_turn_memory', 'observe')
     .addEdge('observe', END)
 
-  return graph.compile({ checkpointer })
+  const compiled = graph.compile({ checkpointer })
+  const invoke = compiled.invoke.bind(compiled)
+  compiled.invoke = (input, invocationConfig) =>
+    invocationProvenance.run(
+      { domainGap: null },
+      () => invoke(input, invocationConfig)
+    )
+  return compiled
 }

@@ -59,21 +59,21 @@ test('admin SQL guard normalizes safe SQL, scopes every source and caps rows', (
   assert.equal((normalized.match(/\?/g) ?? []).length, 2)
 })
 
-test('admin SQL guard preserves a smaller limit and scopes each safe union branch', () => {
+test('admin SQL guard preserves a smaller limit and rejects set operations', () => {
   const normalized = guardAdminSql(
     'SELECT user_id, category FROM finance_records_safe LIMIT 10',
     { maxRows: 200 }
   )
   assert.match(normalized, /LIMIT 10$/)
 
-  const union = guardAdminSql(
+  for (const sql of [
     'SELECT user_id FROM finance_records_safe ' +
-      'UNION ALL SELECT user_id FROM finance_budgets_safe',
-    { maxRows: 50 }
-  )
-  assert.equal((union.match(/`user_id` = \?/g) ?? []).length, 2)
-  assert.match(union, /UNION ALL/)
-  assert.match(union, /LIMIT 50$/)
+      'UNION SELECT user_id FROM finance_budgets_safe',
+    'SELECT user_id FROM finance_records_safe ' +
+      'UNION ALL SELECT user_id FROM finance_budgets_safe'
+  ]) {
+    rejectsSql(sql)
+  }
 })
 
 test('admin SQL guard parenthesizes model OR predicates before trusted user scope', () => {
