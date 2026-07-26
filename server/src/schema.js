@@ -307,6 +307,72 @@ export function getCreateTableStatements() {
       KEY idx_import_records_batch (batch_id),
       KEY idx_import_records_user (user_id, created_at),
       KEY idx_import_records_record (record_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+    `CREATE TABLE IF NOT EXISTS user_roles (
+      user_id BIGINT UNSIGNED PRIMARY KEY,
+      role VARCHAR(32) NOT NULL DEFAULT 'user',
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+    `CREATE TABLE IF NOT EXISTS user_memories (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      user_id BIGINT UNSIGNED NOT NULL,
+      namespace VARCHAR(64) NOT NULL,
+      memory_key VARCHAR(128) NOT NULL,
+      value_json JSON NOT NULL,
+      sensitivity VARCHAR(16) NOT NULL DEFAULT 'normal',
+      status VARCHAR(16) NOT NULL DEFAULT 'active',
+      source_type VARCHAR(16) NOT NULL,
+      source_session_id VARCHAR(128) NULL,
+      version INT UNSIGNED NOT NULL DEFAULT 1,
+      confirmed_at DATETIME NULL,
+      expires_at DATETIME NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_user_memory (user_id, namespace, memory_key),
+      KEY idx_user_memories_active (user_id, status, expires_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+    `CREATE TABLE IF NOT EXISTS memory_audit_logs (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      user_id BIGINT UNSIGNED NOT NULL,
+      namespace VARCHAR(64) NOT NULL,
+      memory_key VARCHAR(128) NOT NULL,
+      action VARCHAR(32) NOT NULL,
+      before_json JSON NULL,
+      after_json JSON NULL,
+      operation_id VARCHAR(64) NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_memory_audit_user_created (user_id, created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+    `CREATE TABLE IF NOT EXISTS conversation_summaries (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      user_id BIGINT UNSIGNED NOT NULL,
+      session_id VARCHAR(128) NOT NULL,
+      summary_json JSON NOT NULL,
+      covered_until_turn INT UNSIGNED NOT NULL DEFAULT 0,
+      message_count INT UNSIGNED NOT NULL DEFAULT 0,
+      expires_at DATETIME NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_conversation_summary (user_id, session_id),
+      KEY idx_conversation_summaries_expiry (expires_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+    `CREATE TABLE IF NOT EXISTS agent_operations (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      user_id BIGINT UNSIGNED NOT NULL,
+      operation_id VARCHAR(64) NOT NULL,
+      operation_type VARCHAR(64) NOT NULL,
+      status VARCHAR(16) NOT NULL DEFAULT 'started',
+      input_hash CHAR(64) NOT NULL,
+      result_json JSON NULL,
+      error_code VARCHAR(64) NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_agent_operation (user_id, operation_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
   ]
 }
