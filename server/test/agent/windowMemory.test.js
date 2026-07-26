@@ -6,6 +6,7 @@ import {
   trimWindow
 } from '../../src/agent/memory/windowMemory.js'
 import { RuntimeContextValidationError } from '../../src/agent/runtime.js'
+import { agentRedisCache } from '../../src/redis.js'
 
 function createCache(initial = []) {
   const writes = []
@@ -132,6 +133,36 @@ test('window read sanitizes invalid cache data and cache failures degrade safely
   assert.deepEqual(await failingStore.append(1, 's-1', [
     { role: 'user', content: 'hello' }
   ]), [{ role: 'user', content: 'hello', ts: 1 }])
+})
+
+test('window default cache does not read an in-process backup after Redis fails', async () => {
+  const sensitive = 'private-default-window'
+  const original = {
+    get: agentRedisCache.get,
+    set: agentRedisCache.set,
+    del: agentRedisCache.del
+  }
+  const originalWarn = console.warn
+  console.warn = () => {}
+  agentRedisCache.get = async () => { throw new Error(sensitive) }
+  agentRedisCache.set = async () => { throw new Error(sensitive) }
+  agentRedisCache.del = async () => { throw new Error(sensitive) }
+
+  try {
+    const store = createWindowMemory({
+      maxMessages: 3,
+      maxTokens: 20,
+      ttlSeconds: 60,
+      now: () => 1
+    })
+    await store.append(31, 'redis-only-window', [
+      { role: 'user', content: sensitive }
+    ])
+    assert.deepEqual(await store.read(31, 'redis-only-window'), [])
+  } finally {
+    Object.assign(agentRedisCache, original)
+    console.warn = originalWarn
+  }
 })
 
 test('window rejects invalid scope before accessing cache', async () => {

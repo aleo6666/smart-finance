@@ -1,9 +1,5 @@
 import config from '../../config.js'
-import {
-  cacheDelete,
-  cacheGet,
-  cacheSet
-} from '../../redis.js'
+import { agentRedisCache } from '../../redis.js'
 import {
   normalizeTrustedSessionId,
   normalizeTrustedUserId
@@ -20,11 +16,7 @@ const DEVICE_TYPES = new Set([
 const INPUT_MODES = new Set(['text', 'voice'])
 const RESPONSE_STYLES = new Set(['concise', 'detailed'])
 
-const defaultCache = {
-  get: cacheGet,
-  set: cacheSet,
-  del: cacheDelete
-}
+const defaultCache = agentRedisCache
 
 function positiveInteger(value, name) {
   if (!Number.isInteger(value) || value <= 0) {

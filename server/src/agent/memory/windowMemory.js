@@ -1,9 +1,5 @@
 import config from '../../config.js'
-import {
-  cacheDelete,
-  cacheGet,
-  cacheSet
-} from '../../redis.js'
+import { agentRedisCache } from '../../redis.js'
 import {
   normalizeTrustedSessionId,
   normalizeTrustedUserId
@@ -12,11 +8,7 @@ import {
 const MESSAGE_ROLES = new Set(['user', 'assistant', 'tool'])
 const MAX_CONTENT_LENGTH = 4000
 
-const defaultCache = {
-  get: cacheGet,
-  set: cacheSet,
-  del: cacheDelete
-}
+const defaultCache = agentRedisCache
 
 function positiveInteger(value, name) {
   if (!Number.isInteger(value) || value <= 0) {

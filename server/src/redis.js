@@ -33,6 +33,36 @@ export function getRedisClient() {
   return redisClient
 }
 
+export function createRedisOnlyCache({ getClient = getRedisClient } = {}) {
+  const connect = async () => {
+    const redis = getClient()
+    if (redis.status === 'wait') await redis.connect()
+    return redis
+  }
+
+  return {
+    async set(key, value, ttlSeconds) {
+      const redis = await connect()
+      const payload = JSON.stringify(value)
+      if (ttlSeconds) await redis.set(key, payload, 'EX', ttlSeconds)
+      else await redis.set(key, payload)
+    },
+
+    async get(key) {
+      const redis = await connect()
+      const payload = await redis.get(key)
+      return payload ? JSON.parse(payload) : null
+    },
+
+    async del(key) {
+      const redis = await connect()
+      await redis.del(key)
+    }
+  }
+}
+
+export const agentRedisCache = createRedisOnlyCache()
+
 export async function cacheSet(key, value, ttlSeconds) {
   const payload = JSON.stringify(value)
   try {

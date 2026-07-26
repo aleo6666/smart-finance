@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createSessionMetadataStore } from '../../src/agent/memory/sessionMetadata.js'
 import { RuntimeContextValidationError } from '../../src/agent/runtime.js'
+import { agentRedisCache } from '../../src/redis.js'
 
 test('session metadata writes the exact whitelist to its scoped key with TTL', async () => {
   const writes = []
@@ -118,6 +119,34 @@ test('session metadata cache failures degrade to empty values without exposing d
   assert.deepEqual(await store.read(3, 's-3'), {})
   assert.equal(await store.write(3, 's-3', { locale: sensitive }), null)
   assert.equal(await store.clear(3, 's-3'), false)
+})
+
+test('session metadata default cache fails closed when Redis is unavailable', async () => {
+  const sensitive = 'private-default-session'
+  const original = {
+    get: agentRedisCache.get,
+    set: agentRedisCache.set,
+    del: agentRedisCache.del
+  }
+  const originalWarn = console.warn
+  console.warn = () => {}
+  agentRedisCache.get = async () => { throw new Error(sensitive) }
+  agentRedisCache.set = async () => { throw new Error(sensitive) }
+  agentRedisCache.del = async () => { throw new Error(sensitive) }
+
+  try {
+    const store = createSessionMetadataStore({
+      ttlSeconds: 60,
+      now: () => 123
+    })
+    assert.equal(await store.write(30, 'redis-only-session', {
+      locale: sensitive
+    }), null)
+    assert.deepEqual(await store.read(30, 'redis-only-session'), {})
+  } finally {
+    Object.assign(agentRedisCache, original)
+    console.warn = originalWarn
+  }
 })
 
 test('session metadata rejects invalid user and session scope before cache access', async () => {
