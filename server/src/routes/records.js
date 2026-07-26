@@ -11,7 +11,12 @@ import {
   readOcrSession,
   clearOcrSession
 } from '../services/ocrSession.js'
-import { saveConfirmedOcrRecords } from '../services/ocrConfirm.js'
+import {
+  createOcrConfirmOperationId,
+  saveConfirmedOcrRecords
+} from '../services/ocrConfirm.js'
+import { createOperationStore } from '../agent/stores/operationStore.js'
+import { manualOcrFallback } from '../agent/tools/ocrTool.js'
 import multer from 'multer'
 
 const upload = multer({ dest: process.env.UPLOADS_DIR || 'uploads' })
@@ -28,6 +33,7 @@ export function createRecordsRouter({
   scanReceiptFn = scanReceipt,
   ocrSessionService = { saveOcrSession, readOcrSession, clearOcrSession },
   ocrConfirmService = { saveConfirmedOcrRecords },
+  operationStore = createOperationStore(dbClient),
   vectorMemory = defaultVectorMemory
 } = {}) {
   const router = Router()
@@ -189,8 +195,8 @@ export function createRecordsRouter({
         }
       })
     } catch (error) {
-      console.error('[OCR] failed:', error)
-      res.status(500).json({ success: false, error: '图片处理失败，请稍后重试' })
+      logger.warn('OCR provider unavailable', { userId: req.userId })
+      res.json({ success: true, data: manualOcrFallback('OCR_UNAVAILABLE') })
     }
   })
 
@@ -204,13 +210,21 @@ export function createRecordsRouter({
         userId: req.userId,
         deviceId: `user-${req.userId}`,
         session,
+        uploadId: ocrSessionId,
+        operationId: createOcrConfirmOperationId({
+          userId: req.userId,
+          uploadId: ocrSessionId
+        }),
+        operationStore,
         confirmedRecords: records
       })
-      await ocrSessionService.clearOcrSession({ userId: req.userId, ocrSessionId })
+      if (result.status !== 'in_progress') {
+        await ocrSessionService.clearOcrSession({ userId: req.userId, ocrSessionId })
+      }
       logger.info('OCR确认保存记录', { userId: req.userId, count: result.count })
       res.json({ success: true, data: result })
     } catch (error) {
-      console.error('[OCR] confirm failed:', error)
+      logger.warn('OCR confirmation failed', { userId: req.userId })
       res.status(400).json({ success: false, error: '保存记录失败，请检查数据后重试' })
     }
   })

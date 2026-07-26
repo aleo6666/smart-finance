@@ -1,10 +1,59 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  createOcrConfirmOperationId,
   normalizeOcrRecord,
   isUserCorrected,
   saveConfirmedOcrRecords
 } from '../src/services/ocrConfirm.js'
+
+function validConfirmedRecord(overrides = {}) {
+  return {
+    type: 'expense',
+    amount: 25,
+    category: '餐饮',
+    description: '午餐',
+    date: '2026-07-27',
+    merchant: '餐厅',
+    ...overrides
+  }
+}
+
+function createOperationStore() {
+  const operations = new Map()
+  return {
+    async claim({ userId, operationId, operationType, input }) {
+      const key = `${userId}:${operationId}`
+      const serialized = JSON.stringify({ operationType, input })
+      const existing = operations.get(key)
+      if (existing) {
+        if (existing.serialized !== serialized) {
+          const error = new Error('conflict')
+          error.code = 'OPERATION_ID_CONFLICT'
+          throw error
+        }
+        if (existing.status === 'succeeded') {
+          return { status: 'succeeded', result: existing.result }
+        }
+        return { status: existing.status === 'started' ? 'in_progress' : 'failed' }
+      }
+      const inputHash = `hash-${operations.size + 1}`
+      operations.set(key, { serialized, status: 'started', inputHash })
+      return { status: 'owner', inputHash }
+    },
+    async succeed({ userId, operationId, inputHash, result }) {
+      const operation = operations.get(`${userId}:${operationId}`)
+      assert.equal(operation.inputHash, inputHash)
+      operation.status = 'succeeded'
+      operation.result = result
+    },
+    async fail({ userId, operationId, inputHash }) {
+      const operation = operations.get(`${userId}:${operationId}`)
+      assert.equal(operation.inputHash, inputHash)
+      operation.status = 'failed'
+    }
+  }
+}
 
 test('normalizeOcrRecord accepts a valid confirmed OCR record', () => {
   const record = normalizeOcrRecord({
@@ -80,4 +129,199 @@ test('saveConfirmedOcrRecords inserts records and OCR evaluations', async () => 
   assert.equal(insertedEvaluations[0].corrected_amount, 26)
   assert.equal(embedded[0].id, 1)
   assert.equal(monitored[0].record.id, 1)
+})
+
+test('concurrent and repeated OCR confirmations insert each record only once', async () => {
+  let inserts = 0
+  const operationStore = createOperationStore()
+  const repository = {
+    async transaction(work) {
+      await new Promise(resolve => setTimeout(resolve, 10))
+      return work('trx')
+    },
+    async insertRecord() {
+      inserts += 1
+      return inserts
+    },
+    async fetchRecord(id) {
+      return { id, amount: 25 }
+    },
+    async insertEvaluation() {}
+  }
+  const input = {
+    userId: 7,
+    deviceId: 'user-7',
+    session: {
+      userId: 7,
+      records: [validConfirmedRecord()]
+    },
+    uploadId: 'session-1',
+    operationId: createOcrConfirmOperationId({ userId: 7, uploadId: 'session-1' }),
+    operationStore,
+    confirmedRecords: [validConfirmedRecord()],
+    repository,
+    embedRecordFn: async () => {},
+    checkBudgetAfterRecordFn: async () => {}
+  }
+
+  const [first, concurrent] = await Promise.all([
+    saveConfirmedOcrRecords(input),
+    saveConfirmedOcrRecords(input)
+  ])
+  const repeated = await saveConfirmedOcrRecords(input)
+
+  assert.equal(inserts, 1)
+  assert.equal(first.count, 1)
+  assert.deepEqual(concurrent, { status: 'in_progress', records: [], count: 0 })
+  assert.deepEqual(repeated, first)
+})
+
+test('OCR confirmation rejects cross-user sessions before claiming or writing', async () => {
+  let claims = 0
+  let inserts = 0
+  await assert.rejects(
+    saveConfirmedOcrRecords({
+      userId: 7,
+      session: { userId: 8, records: [validConfirmedRecord()] },
+      uploadId: 'session-1',
+      operationId: createOcrConfirmOperationId({ userId: 7, uploadId: 'session-1' }),
+      operationStore: {
+        async claim() {
+          claims += 1
+        }
+      },
+      confirmedRecords: [validConfirmedRecord()],
+      repository: {
+        async transaction(work) {
+          return work('trx')
+        },
+        async insertRecord() {
+          inserts += 1
+        }
+      }
+    }),
+    error => error.code === 'FORBIDDEN' && error.statusCode === 403
+  )
+  assert.equal(claims, 0)
+  assert.equal(inserts, 0)
+})
+
+test('same OCR confirmation operation rejects a changed preview', async () => {
+  const operationStore = createOperationStore()
+  const operationId = createOcrConfirmOperationId({ userId: 7, uploadId: 'session-1' })
+  const common = {
+    userId: 7,
+    session: { userId: 7, records: [validConfirmedRecord()] },
+    uploadId: 'session-1',
+    operationId,
+    operationStore,
+    repository: {
+      async transaction(work) { return work('trx') },
+      async insertRecord() { return 1 },
+      async fetchRecord() { return { id: 1 } },
+      async insertEvaluation() {}
+    },
+    embedRecordFn: async () => {},
+    checkBudgetAfterRecordFn: async () => {}
+  }
+
+  await saveConfirmedOcrRecords({
+    ...common,
+    confirmedRecords: [validConfirmedRecord()]
+  })
+  await assert.rejects(
+    saveConfirmedOcrRecords({
+      ...common,
+      confirmedRecords: [validConfirmedRecord({ amount: 99 })]
+    }),
+    error => error.code === 'OPERATION_ID_CONFLICT'
+  )
+})
+
+test('failed OCR confirmation is marked failed and never reported as success', async () => {
+  const operationStore = createOperationStore()
+  const input = {
+    userId: 7,
+    session: { userId: 7, records: [validConfirmedRecord()] },
+    uploadId: 'session-1',
+    operationId: createOcrConfirmOperationId({ userId: 7, uploadId: 'session-1' }),
+    operationStore,
+    confirmedRecords: [validConfirmedRecord()],
+    repository: {
+      async transaction() {
+        throw new Error('mysql://secret')
+      }
+    }
+  }
+
+  await assert.rejects(
+    saveConfirmedOcrRecords(input),
+    error =>
+      error.code === 'OCR_CONFIRM_FAILED' &&
+      error.statusCode === 503 &&
+      !error.message.includes('secret')
+  )
+  await assert.rejects(
+    saveConfirmedOcrRecords(input),
+    error => error.code === 'OCR_CONFIRM_FAILED'
+  )
+})
+
+test('OCR confirmation stores a JSON-safe replay result for database date values', async () => {
+  const operationStore = createOperationStore()
+  const originalSucceed = operationStore.succeed
+  operationStore.succeed = async input => {
+    assert.equal(input.result.records[0].created_at, '2026-07-27T08:00:00.000Z')
+    await originalSucceed(input)
+  }
+  const result = await saveConfirmedOcrRecords({
+    userId: 7,
+    session: { userId: 7, records: [validConfirmedRecord()] },
+    uploadId: 'session-json',
+    operationId: createOcrConfirmOperationId({ userId: 7, uploadId: 'session-json' }),
+    operationStore,
+    confirmedRecords: [validConfirmedRecord()],
+    repository: {
+      async transaction(work) { return work('trx') },
+      async insertRecord() { return 1 },
+      async fetchRecord() {
+        return { id: 1, created_at: new Date('2026-07-27T08:00:00.000Z') }
+      },
+      async insertEvaluation() {}
+    },
+    embedRecordFn: async () => {},
+    checkBudgetAfterRecordFn: async () => {}
+  })
+
+  assert.equal(result.records[0].created_at, '2026-07-27T08:00:00.000Z')
+})
+
+test('OCR confirmation post-processing logs never include dependency error text', async () => {
+  const warnings = []
+  await saveConfirmedOcrRecords({
+    userId: 7,
+    session: { records: [validConfirmedRecord()] },
+    confirmedRecords: [validConfirmedRecord()],
+    repository: {
+      async transaction(work) { return work('trx') },
+      async insertRecord() { return 1 },
+      async fetchRecord() { return { id: 1 } },
+      async insertEvaluation() {}
+    },
+    embedRecordFn: async () => {
+      throw new Error('qdrant token=secret')
+    },
+    checkBudgetAfterRecordFn: async () => {
+      throw new Error('budget row contains private details')
+    },
+    logger: {
+      warn(...args) {
+        warnings.push(args)
+      }
+    }
+  })
+
+  const serialized = JSON.stringify(warnings)
+  assert.equal(serialized.includes('secret'), false)
+  assert.equal(serialized.includes('private'), false)
 })
