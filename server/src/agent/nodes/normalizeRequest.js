@@ -13,11 +13,11 @@ const CANONICAL_INTENT_ORDER = [
 ]
 
 function hasRecordIntent(text) {
-  return /记(?:一|1)笔|记账|(?:花了|消费了)\s*\d+(?:\.\d+)?(?:元|块)?|(?:收入|支出)\s*\d+(?:\.\d+)?(?:元|块)?/.test(text)
+  return /记(?:一|1)笔|记账|(?:花了|消费了)\s*\d+(?:\.\d+)?(?:元|块)?|(?:收入|支出)\s*\d+(?:\.\d+)?(?:元|块)?|有一笔(?:餐饮|交通|购物|娱乐|医疗|住房)支出/.test(text)
 }
 
 function hasQueryIntent(text) {
-  return /查询|查(?:本月|上月|这个月|上个月|账单|明细)|看看|明细|哪些账|多少笔/.test(text)
+  return /查询|查(?:(?:一?下)?(?:本月|上月|这个月|上个月)(?:账单|明细|收支)?|(?:一?下)?(?:账单|明细))|看看|明细|哪些账|多少笔/.test(text)
 }
 
 function hasStatIntent(text) {

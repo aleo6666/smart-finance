@@ -31,21 +31,14 @@ function trimmedString(value) {
 }
 
 function normalizeSessionId(req) {
-  const candidates = [
-    req?.sessionId,
-    req?.deviceId
-  ]
-
-  for (const candidate of candidates) {
-    const sessionId = trimmedString(candidate)
-    if (!sessionId) continue
-    if (sessionId.length > 128) {
-      throw new RuntimeContextValidationError('sessionId must not exceed 128 characters')
-    }
-    return sessionId
+  const sessionId = trimmedString(req?.sessionId)
+  if (!sessionId) {
+    throw new RuntimeContextValidationError('sessionId is required')
   }
-
-  throw new RuntimeContextValidationError('sessionId is required')
+  if (!/^[A-Za-z0-9._:-]{1,128}$/.test(sessionId)) {
+    throw new RuntimeContextValidationError('sessionId is invalid')
+  }
+  return sessionId
 }
 
 export function normalizeTrustedUserId(userId) {

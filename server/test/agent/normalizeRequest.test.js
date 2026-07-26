@@ -33,6 +33,16 @@ test('detectCompositeIntent does not treat the bare character 查 as a query', (
   assert.equal(detectCompositeIntent('调查省钱方法'), 'suggest')
 })
 
+test('detectCompositeIntent recognizes bounded finance query phrases', () => {
+  for (const text of ['查一下本月账单', '查下账单', '查一下明细']) {
+    assert.equal(detectCompositeIntent(text), 'query')
+  }
+})
+
+test('detectCompositeIntent recognizes an amount-less categorized record clarification', () => {
+  assert.equal(detectCompositeIntent('昨天有一笔餐饮支出'), 'record')
+})
+
 test('normalize request overwrites model-controlled identity with LangGraph config context', async () => {
   const messages = [{
     role: 'user',

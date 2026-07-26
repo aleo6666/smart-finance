@@ -153,9 +153,11 @@ test('buildRuntimeContext trusts server identity and ignores body spoofing', () 
 test('buildRuntimeContext uses a valid idempotency key and safely normalizes metadata', () => {
   const context = buildRuntimeContext({
     req: {
+      sessionId: ' trusted-session ',
       body: { inputMode: 'model-controlled-value' },
       headers: {
         'x-session-id': 'spoofed-header-session',
+        'x-device-id': 'spoofed-header-device',
         'x-idempotency-key': ' operation-from-client ',
         'x-device-type': 'untrusted-device',
         'x-timezone': '../../etc/passwd',
@@ -170,7 +172,7 @@ test('buildRuntimeContext uses a valid idempotency key and safely normalizes met
 
   assert.deepEqual(context, {
     userId: 8,
-    sessionId: 'device-session',
+    sessionId: 'trusted-session',
     requestId: 'request-server-id',
     operationId: 'operation-from-client',
     isAdmin: true,
@@ -194,7 +196,11 @@ test('buildRuntimeContext rejects invalid server identity and missing session sa
     () => buildRuntimeContext({
       req: {
         body: { sessionId: 'body-spoofed-session' },
-        headers: { 'x-session-id': 'header-spoofed-session' }
+        headers: {
+          'x-session-id': 'header-spoofed-session',
+          'x-device-id': 'header-spoofed-device'
+        },
+        deviceId: 'device-spoofed-session'
       },
       userId: 7,
       isAdmin: false
@@ -217,11 +223,28 @@ test('buildRuntimeContext rejects overlong middleware session ids', () => {
   )
 })
 
+test('buildRuntimeContext rejects middleware session ids outside the safe alphabet', () => {
+  for (const sessionId of ['bad/session', 'space session', '中文会话']) {
+    assert.throws(
+      () => buildRuntimeContext({
+        req: { sessionId, body: {}, headers: {} },
+        userId: 7,
+        isAdmin: false
+      }),
+      error => error instanceof RuntimeContextValidationError &&
+        error.code === 'ERR_INVALID_RUNTIME_CONTEXT' &&
+        error.statusCode === 400 &&
+        error.expose === true &&
+        /sessionId/.test(error.message)
+    )
+  }
+})
+
 test('buildRuntimeContext generates operation ids for absent or blank idempotency keys', () => {
   const generatedIds = ['request-1', 'operation-1', 'request-2', 'operation-2']
   const absent = buildRuntimeContext({
     req: {
-      deviceId: 'session-7',
+      sessionId: 'session-7',
       body: {},
       headers: {}
     },
@@ -231,7 +254,7 @@ test('buildRuntimeContext generates operation ids for absent or blank idempotenc
   })
   const blank = buildRuntimeContext({
     req: {
-      deviceId: 'session-7',
+      sessionId: 'session-7',
       body: {},
       headers: { 'x-idempotency-key': '   ' }
     },
@@ -249,7 +272,7 @@ test('buildRuntimeContext rejects unsafe or overlong idempotency keys', () => {
     assert.throws(
       () => buildRuntimeContext({
         req: {
-          deviceId: 'session-7',
+          sessionId: 'session-7',
           body: {},
           headers: { 'x-idempotency-key': key }
         },
@@ -268,7 +291,7 @@ test('buildRuntimeContext rejects unsafe or overlong idempotency keys', () => {
 
 test('buildRuntimeContext preserves the same valid idempotency key across retries', () => {
   const req = {
-    deviceId: 'session-7',
+    sessionId: 'session-7',
     body: {},
     headers: { 'x-idempotency-key': 'retry.operation:7-1' }
   }
