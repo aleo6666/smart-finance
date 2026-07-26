@@ -4,6 +4,17 @@ import config from './config.js'
 let redisClient
 const memoryStore = new Map()
 
+export function getRedisUrl(configOverride = config) {
+  const redisConfig = configOverride.redis || configOverride
+  const password = redisConfig.password
+    ? `:${encodeURIComponent(String(redisConfig.password)).replace(
+        /[!'()*]/g,
+        character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+      )}@`
+    : ''
+  return `redis://${password}${redisConfig.host}:${redisConfig.port}`
+}
+
 export function getRedisClient() {
   if (redisClient) return redisClient
 
