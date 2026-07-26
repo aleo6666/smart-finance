@@ -187,6 +187,14 @@ test('agent, memory, admin SQL, and PaddleOCR numeric settings are bounded', () 
   assert.equal(loaded.paddleOcr.pollTimeoutMs, 900000)
 })
 
+test('agent integer settings accept zero and reject blank, malformed, or fractional values', () => {
+  assert.equal(loadConfig({ AGENT_NETWORK_RETRY_COUNT: '0' }).agent.networkRetryCount, 0)
+  assert.equal(loadConfig({ AGENT_NETWORK_RETRY_COUNT: ' ' }).agent.networkRetryCount, 2)
+  assert.equal(loadConfig({ AGENT_NETWORK_RETRY_COUNT: 'invalid' }).agent.networkRetryCount, 2)
+  assert.equal(loadConfig({ AGENT_NETWORK_RETRY_COUNT: '1.5' }).agent.networkRetryCount, 2)
+  assert.equal(loadConfig({ AGENT_MAX_TOOL_CALLS: '2.5' }).agent.maxToolCalls, 5)
+})
+
 test('admin SQL connection settings use database fallbacks and explicit overrides', () => {
   const fallback = loadConfig({
     DB_HOST: 'mysql',
