@@ -43,6 +43,12 @@ const POST_WRITE_ANALYSIS_INTENTS = new Set([
   'suggest'
 ])
 
+const DOMAIN_TOOL_NAMES = new Set([
+  'query_transactions',
+  'calculate_finance_metrics',
+  'check_budget'
+])
+
 function safeError(code, source) {
   return { code, source, fatal: true }
 }
@@ -58,6 +64,72 @@ function toolCallsFromLastMessage(state) {
   return isAIMessage(last) && Array.isArray(last.tool_calls)
     ? last.tool_calls
     : []
+}
+
+function isAdminSqlTool(candidate) {
+  return candidate?.metadata?.adminSql === true
+}
+
+function isDomainTool(candidate) {
+  return candidate?.metadata?.domainTool === true ||
+    DOMAIN_TOOL_NAMES.has(candidate?.name)
+}
+
+function toolResult(message) {
+  if (
+    message?._getType?.() !== 'tool' ||
+    typeof message.content !== 'string'
+  ) {
+    return null
+  }
+  try {
+    const result = JSON.parse(message.content)
+    return result && typeof result === 'object' && !Array.isArray(result)
+      ? result
+      : null
+  } catch {
+    return null
+  }
+}
+
+function currentTurnMessages(messages) {
+  if (!Array.isArray(messages)) return []
+  const lastUserIndex = messages.findLastIndex(message => {
+    const type = message?._getType?.() ?? message?.role
+    return type === 'human' || type === 'user'
+  })
+  return messages.slice(lastUserIndex + 1)
+}
+
+function hasTrustedDomainGap(state, domainToolNames) {
+  const requestedDomainCalls = new Map()
+  for (const message of currentTurnMessages(state?.messages)) {
+    if (isAIMessage(message) && Array.isArray(message.tool_calls)) {
+      for (const call of message.tool_calls) {
+        if (
+          typeof call?.id === 'string' &&
+          domainToolNames.has(call?.name)
+        ) {
+          requestedDomainCalls.set(call.id, call.name)
+        }
+      }
+      continue
+    }
+    const expectedTool = requestedDomainCalls.get(message?.tool_call_id)
+    const result = toolResult(message)
+    if (
+      expectedTool &&
+      message.name === expectedTool &&
+      result?.status === 'unsupported_depth'
+    ) {
+      return true
+    }
+  }
+  return false
+}
+
+function analysisIntent(value) {
+  return String(value || '').split('+').includes('analysis')
 }
 
 function createLoadMemoryNode(loadMemoryContext) {
@@ -347,6 +419,17 @@ export function createAgentGraph({
   if (!Array.isArray(tools)) throw new TypeError('tools must be an array')
 
   const maxToolCalls = config?.agent?.maxToolCalls
+  const adminTools = tools.filter(isAdminSqlTool)
+  const baseTools = tools.filter(item => !isAdminSqlTool(item))
+  const adminToolNames = new Set(adminTools.map(item => item.name))
+  const domainToolNames = new Set(
+    baseTools.filter(isDomainTool).map(item => item.name)
+  )
+  const adminSqlReachable = state =>
+    config?.agent?.adminSqlEnabled === true &&
+    state?.isAdmin === true &&
+    analysisIntent(state?.intentType) &&
+    hasTrustedDomainGap(state, domainToolNames)
   const baseValidateToolCall = createValidateToolCallNode({
     tools,
     datasetStore,
@@ -369,7 +452,10 @@ export function createAgentGraph({
     amountThreshold,
     now: confirmationNow
   })
-  const boundModel = model.bindTools(tools)
+  const boundModel = model.bindTools(baseTools)
+  const boundAdminModel = adminTools.length > 0
+    ? model.bindTools([...baseTools, ...adminTools])
+    : boundModel
   const toolsByName = new Map(tools.map(item => [item.name, item]))
   const toolNode = new ToolNode(safeExecutableTools(tools), {
     handleToolErrors: false
@@ -378,6 +464,16 @@ export function createAgentGraph({
   const validateToolCall = async (state, graphConfig) => {
     const result = await baseValidateToolCall(state, graphConfig)
     if ((result.errors ?? []).some(item => item?.fatal === true)) return result
+    if (
+      toolCallsFromLastMessage(state).some(call =>
+        adminToolNames.has(call?.name)
+      ) &&
+      !adminSqlReachable(state)
+    ) {
+      return {
+        errors: [safeError('FORBIDDEN', 'validate_tool_call')]
+      }
+    }
     if (!hasWriteToolCall(state)) return result
     return {
       ...result,
@@ -387,7 +483,10 @@ export function createAgentGraph({
 
   const callModel = async (state, graphConfig) => {
     try {
-      const result = await boundModel.invoke(
+      const selectedModel = adminSqlReachable(state)
+        ? boundAdminModel
+        : boundModel
+      const result = await selectedModel.invoke(
         composeModelMessages(state),
         graphConfig
       )
@@ -403,7 +502,20 @@ export function createAgentGraph({
 
   const domainTools = async (state, graphConfig) => {
     try {
-      const output = await toolNode.invoke(state, graphConfig)
+      const invokesAdminSql = toolCallsFromLastMessage(state).some(call =>
+        adminToolNames.has(call?.name)
+      )
+      const executionConfig = invokesAdminSql
+        ? {
+            ...graphConfig,
+            context: {
+              ...(graphConfig?.context ?? {}),
+              intentType: state.intentType,
+              domainGap: 'unsupported_depth'
+            }
+          }
+        : graphConfig
+      const output = await toolNode.invoke(state, executionConfig)
       const messages = Array.isArray(output?.messages) ? output.messages : []
       const addedRefs = metadataFromToolMessages(messages)
       return {
