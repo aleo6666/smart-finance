@@ -18,6 +18,11 @@ import { composeModelMessages } from './prompts.js'
 import { createNormalizeRequestNode } from './nodes/normalizeRequest.js'
 import { createComposePromptNode } from './nodes/composePrompt.js'
 import { createValidateToolCallNode } from './nodes/validateToolCall.js'
+import {
+  createPendingConfirmationNode,
+  createRiskNode,
+  hasWriteToolCall
+} from './nodes/riskAndConfirmation.js'
 
 const DATASET_SCOPE_FIELDS = new Set([
   'month',
@@ -26,6 +31,13 @@ const DATASET_SCOPE_FIELDS = new Set([
   'category',
   'type',
   'queryKind'
+])
+
+const POST_WRITE_ANALYSIS_INTENTS = new Set([
+  'query',
+  'stat',
+  'analysis',
+  'suggest'
 ])
 
 function safeError(code, source) {
@@ -208,7 +220,8 @@ export function createAgentGraph({
   composePrompt = createComposePromptNode(),
   finalizeResponse = createFinalizeNode(),
   postTurnMemory = async () => ({}),
-  observe = async () => ({})
+  observe = async () => ({}),
+  confirmationNow = Date.now
 }) {
   if (!model || typeof model.bindTools !== 'function') {
     throw new TypeError('model must provide bindTools')
@@ -216,15 +229,42 @@ export function createAgentGraph({
   if (!Array.isArray(tools)) throw new TypeError('tools must be an array')
 
   const maxToolCalls = config?.agent?.maxToolCalls
-  const validateToolCall = createValidateToolCallNode({
+  const baseValidateToolCall = createValidateToolCallNode({
     tools,
     datasetStore,
     maxToolCalls
+  })
+  const confirmationTtlSeconds = Number.isFinite(
+    config?.agent?.confirmationTtlSeconds
+  )
+    ? config.agent.confirmationTtlSeconds
+    : 1800
+  const amountThreshold = Number.isFinite(config?.agent?.amountThreshold)
+    ? config.agent.amountThreshold
+    : 10_000
+  const preparePendingConfirmation = createPendingConfirmationNode({
+    tools,
+    ttlMs: confirmationTtlSeconds * 1000,
+    now: confirmationNow
+  })
+  const riskAndConfirmation = createRiskNode({
+    amountThreshold,
+    now: confirmationNow
   })
   const boundModel = model.bindTools(tools)
   const toolNode = new ToolNode(safeExecutableTools(tools), {
     handleToolErrors: false
   })
+
+  const validateToolCall = async (state, graphConfig) => {
+    const result = await baseValidateToolCall(state, graphConfig)
+    if ((result.errors ?? []).some(item => item?.fatal === true)) return result
+    if (!hasWriteToolCall(state)) return result
+    return {
+      ...result,
+      ...await preparePendingConfirmation(state, graphConfig)
+    }
+  }
 
   const callModel = async (state, graphConfig) => {
     try {
@@ -260,6 +300,43 @@ export function createAgentGraph({
     }
   }
 
+  const confirmedWriteTools = async (state, graphConfig) => {
+    const pending = state.pendingConfirmation
+    const sourceCall = toolCallsFromLastMessage(state).find(
+      call => call?.name === pending?.toolName
+    )
+    if (!pending || pending.approved !== true || !sourceCall) {
+      return {
+        errors: [safeError('CONFIRMATION_STATE_INVALID', 'domain_tools')]
+      }
+    }
+    try {
+      const output = await toolNode.invoke({
+        ...state,
+        messages: [new AIMessage({
+          content: '',
+          tool_calls: [{
+            id: sourceCall.id,
+            name: pending.toolName,
+            args: pending.args,
+            type: 'tool_call'
+          }]
+        })]
+      }, graphConfig)
+      return {
+        ...output,
+        pendingConfirmation: {
+          ...pending,
+          executed: true
+        }
+      }
+    } catch {
+      return {
+        errors: [safeError('TOOL_EXECUTION_FAILED', 'domain_tools')]
+      }
+    }
+  }
+
   const routeModelResult = state => {
     if ((state.errors ?? []).some(item => item?.fatal === true)) {
       return 'finalize_response'
@@ -268,14 +345,36 @@ export function createAgentGraph({
       ? 'validate_tool_call'
       : 'finalize_response'
   }
-  const routeValidation = state =>
-    (state.errors ?? []).some(item => item?.fatal === true)
-      ? 'finalize_response'
+  const routeValidation = state => {
+    if ((state.errors ?? []).some(item => item?.fatal === true)) {
+      return 'finalize_response'
+    }
+    return hasWriteToolCall(state)
+      ? 'risk_and_confirmation'
       : 'domain_tools'
+  }
+  const routeRiskAndConfirmation = state => {
+    if ((state.errors ?? []).some(item => item?.fatal === true)) {
+      return 'finalize_response'
+    }
+    return state.pendingConfirmation?.approved === true
+      ? 'confirmed_write_tools'
+      : 'finalize_response'
+  }
   const routeDomainTools = state =>
     (state.errors ?? []).some(item => item?.fatal === true)
       ? 'finalize_response'
       : 'call_model'
+  const routeConfirmedWrite = state => {
+    if ((state.errors ?? []).some(item => item?.fatal === true)) {
+      return 'finalize_response'
+    }
+    return String(state.intentType).split('+').some(
+      intent => POST_WRITE_ANALYSIS_INTENTS.has(intent)
+    )
+      ? 'call_model'
+      : 'finalize_response'
+  }
 
   const graph = new StateGraph(AgentState)
     .addNode('normalize_request', normalizeRequest)
@@ -283,6 +382,8 @@ export function createAgentGraph({
     .addNode('compose_prompt', composePrompt)
     .addNode('call_model', callModel)
     .addNode('validate_tool_call', validateToolCall)
+    .addNode('risk_and_confirmation', riskAndConfirmation)
+    .addNode('confirmed_write_tools', confirmedWriteTools)
     .addNode('domain_tools', domainTools)
     .addNode('finalize_response', finalizeResponse)
     .addNode('post_turn_memory', async (state, graphConfig) =>
@@ -298,7 +399,17 @@ export function createAgentGraph({
       'finalize_response'
     ])
     .addConditionalEdges('validate_tool_call', routeValidation, [
+      'risk_and_confirmation',
       'domain_tools',
+      'finalize_response'
+    ])
+    .addConditionalEdges(
+      'risk_and_confirmation',
+      routeRiskAndConfirmation,
+      ['confirmed_write_tools', 'finalize_response']
+    )
+    .addConditionalEdges('confirmed_write_tools', routeConfirmedWrite, [
+      'call_model',
       'finalize_response'
     ])
     .addConditionalEdges('domain_tools', routeDomainTools, [
