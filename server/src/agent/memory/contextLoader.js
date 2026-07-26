@@ -1,4 +1,8 @@
 import { emptySummary } from './recentSummary.js'
+import {
+  normalizeTrustedSessionId,
+  normalizeTrustedUserId
+} from '../runtime.js'
 
 export function createContextLoader({
   sessionMetadata,
@@ -7,11 +11,13 @@ export function createContextLoader({
   windowMemory
 }) {
   return async ({ userId, sessionId }) => {
+    const trustedUserId = normalizeTrustedUserId(userId)
+    const trustedSessionId = normalizeTrustedSessionId(sessionId)
     const settled = await Promise.allSettled([
-      sessionMetadata.read(userId, sessionId),
-      userMemory.listActive(userId),
-      recentSummary.read(userId, sessionId),
-      windowMemory.read(userId, sessionId)
+      sessionMetadata.read(trustedUserId, trustedSessionId),
+      userMemory.listActive(trustedUserId),
+      recentSummary.read(trustedUserId, trustedSessionId),
+      windowMemory.read(trustedUserId, trustedSessionId)
     ])
     const fallback = [{}, [], emptySummary(), []]
     const values = settled.map((item, index) =>

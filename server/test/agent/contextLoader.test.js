@@ -3,6 +3,30 @@ import assert from 'node:assert/strict'
 import { createContextLoader } from '../../src/agent/memory/contextLoader.js'
 import { emptySummary } from '../../src/agent/memory/recentSummary.js'
 
+test('context loader rejects invalid scope before calling any memory store', async () => {
+  let storeCalls = 0
+  const neverCalled = async () => {
+    storeCalls += 1
+    return null
+  }
+  const loader = createContextLoader({
+    sessionMetadata: { read: neverCalled },
+    userMemory: { listActive: neverCalled },
+    recentSummary: { read: neverCalled },
+    windowMemory: { read: neverCalled }
+  })
+
+  await assert.rejects(
+    loader({ userId: 0, sessionId: 's-1' }),
+    error => error.code === 'ERR_INVALID_RUNTIME_CONTEXT'
+  )
+  await assert.rejects(
+    loader({ userId: 7, sessionId: '../other' }),
+    error => error.code === 'ERR_INVALID_RUNTIME_CONTEXT'
+  )
+  assert.equal(storeCalls, 0)
+})
+
 test('context loader starts all four scoped memory reads concurrently', async () => {
   const calls = []
   const releases = []
@@ -17,7 +41,7 @@ test('context loader starts all four scoped memory reads concurrently', async ()
     windowMemory: { read: pending(4, [{ role: 'user', content: '继续' }]) }
   })
 
-  const loading = loader({ userId: 7, sessionId: 's-1' })
+  const loading = loader({ userId: '7', sessionId: ' s-1 ' })
   await Promise.resolve()
   assert.deepEqual(calls.map(call => call.layer), [1, 2, 3, 4])
   assert.deepEqual(calls.map(call => call.args), [
