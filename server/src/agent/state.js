@@ -12,21 +12,13 @@ export const INTENT_PARTS = Object.freeze([
   'unknown'
 ])
 
-const FINANCE_INTENT_PARTS = INTENT_PARTS.slice(0, 6)
-const INTENT_ORDER = new Map(INTENT_PARTS.map((part, index) => [part, index]))
+const INTENT_PART_SET = new Set(INTENT_PARTS)
 
 export const IntentTypeSchema = z.string().refine(value => {
   const parts = value.split('+')
-  if (parts.some(part => !INTENT_ORDER.has(part))) return false
-  if (new Set(parts).size !== parts.length) return false
-
-  if (parts.includes('chat') || parts.includes('unknown')) {
-    return parts.length === 1
-  }
-
   return parts.length > 0 &&
-    parts.every(part => FINANCE_INTENT_PARTS.includes(part)) &&
-    parts.every((part, index) => index === 0 || INTENT_ORDER.get(parts[index - 1]) < INTENT_ORDER.get(part))
+    parts.every(part => INTENT_PART_SET.has(part)) &&
+    new Set(parts).size === parts.length
 }, 'invalid intent type')
 
 const objectMap = () => z.record(z.string(), z.unknown())

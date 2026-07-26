@@ -93,12 +93,18 @@ test('AgentState rejects invalid identity and request time values', async () => 
   )
 })
 
-test('IntentTypeSchema rejects duplicate, unknown, and noncanonical parts', () => {
+test('IntentTypeSchema accepts unique allowed parts in any order or combination', () => {
+  assert.equal(IntentTypeSchema.safeParse('suggest+stat').success, true)
+  assert.equal(IntentTypeSchema.safeParse('chat+record').success, true)
+  assert.equal(IntentTypeSchema.safeParse('unknown+analysis').success, true)
+})
+
+test('IntentTypeSchema rejects duplicate, empty, and unknown parts', () => {
   assert.equal(IntentTypeSchema.safeParse('record+record').success, false)
   assert.equal(IntentTypeSchema.safeParse('record+transfer').success, false)
-  assert.equal(IntentTypeSchema.safeParse('suggest+stat').success, false)
-  assert.equal(IntentTypeSchema.safeParse('chat+record').success, false)
-  assert.equal(IntentTypeSchema.safeParse('unknown+query').success, false)
+  assert.equal(IntentTypeSchema.safeParse('record++stat').success, false)
+  assert.equal(IntentTypeSchema.safeParse('+record').success, false)
+  assert.equal(IntentTypeSchema.safeParse('').success, false)
 })
 
 test('buildRuntimeContext trusts server identity and ignores body spoofing', () => {
