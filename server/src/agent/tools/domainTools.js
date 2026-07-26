@@ -43,6 +43,52 @@ function queryScope(input) {
   return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined))
 }
 
+function previousMonth(month) {
+  if (typeof month !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+    return null
+  }
+  const [year, monthNumber] = month.split('-').map(Number)
+  const date = new Date(Date.UTC(year, monthNumber - 2, 1))
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`
+}
+
+function categoryStats(records) {
+  const totals = new Map()
+  for (const record of records) {
+    const category = record.category || '其他'
+    const current = totals.get(category) ?? { category, total: 0, count: 0 }
+    current.total += Number(record.amount_cny ?? record.amount ?? 0)
+    current.count += 1
+    totals.set(category, current)
+  }
+  return [...totals.values()]
+}
+
+function analysisSummary(summary, previous, scope) {
+  const current = {
+    total: Number(summary.total || 0),
+    count: Number(summary.count || 0)
+  }
+  const previousPeriod = {
+    total: Number(previous?.total || 0),
+    count: Number(previous?.count || 0)
+  }
+  const priorMonth = previousMonth(scope.month)
+  const dataPoints = priorMonth
+    ? [
+        { period: priorMonth, total: previousPeriod.total },
+        { period: scope.month, total: current.total }
+      ]
+    : []
+  return {
+    ...summary,
+    categoryStats: categoryStats(Array.isArray(summary.records) ? summary.records : []),
+    current,
+    previous: previousPeriod,
+    dataPoints
+  }
+}
+
 function calculationParams(type, dataset, input) {
   const summary = dataset.summary || {}
   switch (type) {
@@ -204,16 +250,30 @@ export function createDomainTools({
     try {
       const scope = queryScope(input)
       const summary = await (input.startDate
-        ? queryFinanceDateRangeAdapter
-        : queryFinanceSummary)({
-        userId: runtime.userId,
-        hints: scope
-      })
+        ? queryFinanceDateRangeAdapter({
+            userId: runtime.userId,
+            hints: scope,
+            limit: 1000
+          })
+        : queryFinanceSummary({
+            userId: runtime.userId,
+            hints: scope,
+            limit: 1000
+          }))
+      const priorMonth = previousMonth(scope.month)
+      const previous = priorMonth && !input.startDate
+        ? await queryFinanceSummary({
+            userId: runtime.userId,
+            hints: { ...scope, month: priorMonth, queryKind: 'summary' },
+            limit: 1000
+          })
+        : null
+      const enrichedSummary = analysisSummary(summary, previous, scope)
       return await datasetStore.put({
         userId: runtime.userId,
         requestId: runtime.requestId,
         rows: Array.isArray(summary.records) ? summary.records : [],
-        summary,
+        summary: enrichedSummary,
         scope
       })
     } catch (error) {
@@ -264,10 +324,12 @@ export function createDomainTools({
     const primaryDataset = datasets[0]
     const calculations = await Promise.all(requestedTypes.map(async calculationType => ({
       type: calculationType,
-      result: await executeCalculation({
-        type: calculationType,
-        params: calculationParams(calculationType, primaryDataset, input)
-      })
+      result: calculationType === CALCULATION_TYPES.BUDGET_EXECUTION && datasets[1]
+        ? datasets[1].summary
+        : await executeCalculation({
+            type: calculationType,
+            params: calculationParams(calculationType, primaryDataset, input)
+          })
     })))
     return datasetStore.put({
       userId: runtime.userId,

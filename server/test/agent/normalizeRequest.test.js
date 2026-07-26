@@ -148,6 +148,21 @@ test('normalize request emits only whitelisted L1 session metadata', async () =>
   ])
 })
 
+test('normalize request drops request-scoped dataset references from a previous turn', async () => {
+  const node = createNormalizeRequestNode({ now: () => 300 })
+  const result = await node({
+    messages: [new HumanMessage('分析本月开销')],
+    datasetRefs: [{ datasetRef: 'ds_previous_request' }]
+  }, {
+    context: {
+      userId: 7,
+      sessionId: 'session-7'
+    }
+  })
+
+  assert.deepEqual(result.datasetRefs, [])
+})
+
 test('normalize request only reads trusted identity from config.context', async () => {
   const node = createNormalizeRequestNode({ now: () => 300 })
 

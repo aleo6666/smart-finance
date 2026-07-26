@@ -76,7 +76,7 @@ test('domain analysis starts query and budget before either one settles', async 
   assert.equal(result.datasetRefs.at(-1).datasetRef, 'ds_metrics')
 })
 
-test('domain analysis preserves existing dataset refs and appends metadata only', async () => {
+test('domain analysis drops stale refs and returns current request metadata only', async () => {
   const subgraph = createDomainAnalysisSubgraph({
     queryTransactions: async () => ({
       datasetRef: 'ds_tx',
@@ -98,7 +98,6 @@ test('domain analysis preserves existing dataset refs and appends metadata only'
   }))
 
   assert.deepEqual(result.datasetRefs, [
-    { datasetRef: 'ds_existing', count: 1 },
     { datasetRef: 'ds_tx', count: 2, scope: { month: '2026-07' } },
     { datasetRef: 'ds_budget', count: 1, scope: { month: '2026-07' } },
     { datasetRef: 'ds_metrics', count: 0, scope: {} }

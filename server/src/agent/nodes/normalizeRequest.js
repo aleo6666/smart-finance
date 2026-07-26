@@ -123,7 +123,7 @@ export function createNormalizeRequestNode({ now = Date.now } = {}) {
       },
       userMemory: objectArrayOrEmpty(state.userMemory),
       recentSummary: objectMapOrDefault(state.recentSummary, {}),
-      datasetRefs: objectArrayOrEmpty(state.datasetRefs),
+      datasetRefs: [],
       pendingConfirmation: objectMapOrDefault(state.pendingConfirmation, null),
       toolCallCount: Number.isInteger(state.toolCallCount) && state.toolCallCount >= 0
         ? state.toolCallCount

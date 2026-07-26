@@ -80,20 +80,24 @@ export function createValidateToolCallNode({
 
       if (call.name === 'calculate_finance_metrics') {
         const runtime = graphConfig.context
+        const datasetRefs = parsed.data.datasetRefs ?? [parsed.data.datasetRef]
         if (
           !datasetStore ||
           typeof datasetStore.get !== 'function' ||
           !runtime ||
-          typeof runtime.requestId !== 'string'
+          typeof runtime.requestId !== 'string' ||
+          datasetRefs.some(datasetRef => typeof datasetRef !== 'string')
         ) {
           return { errors: [safeError('DATASET_SCOPE_REJECTED')] }
         }
         try {
-          await datasetStore.get({
-            userId: runtime.userId,
-            requestId: runtime.requestId,
-            datasetRef: parsed.data.datasetRef
-          })
+          await Promise.all(datasetRefs.map(datasetRef =>
+            datasetStore.get({
+              userId: runtime.userId,
+              requestId: runtime.requestId,
+              datasetRef
+            })
+          ))
         } catch {
           return { errors: [safeError('DATASET_SCOPE_REJECTED')] }
         }

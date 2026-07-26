@@ -346,6 +346,51 @@ test('calculation dataset reference is prevalidated in trusted request scope', a
   assert.equal(result.response.success, true)
 })
 
+test('calculation dataset references are all prevalidated in trusted request scope', async () => {
+  const datasetCalls = []
+  const calculate = tool(async () => ({ datasetRef: 'ds_metrics' }), {
+    name: 'calculate_finance_metrics',
+    description: 'calculate from scoped datasets',
+    schema: z.object({
+      datasetRefs: z.array(z.string()).min(1),
+      calculationTypes: z.array(z.string()).min(1)
+    })
+  })
+  const node = createValidateToolCallNode({
+    tools: [calculate],
+    datasetStore: {
+      async get(input) {
+        datasetCalls.push(input)
+        return { rows: [], summary: {} }
+      }
+    },
+    maxToolCalls: 3
+  })
+
+  const result = await node({
+    messages: [new AIMessage({
+      content: '',
+      tool_calls: [{
+        id: 'calc-batch-1',
+        name: 'calculate_finance_metrics',
+        args: {
+          datasetRefs: ['ds_transactions', 'ds_budget'],
+          calculationTypes: ['category_ratio']
+        },
+        type: 'tool_call'
+      }]
+    })],
+    toolCallCount: 0,
+    errors: []
+  }, { context: runtime })
+
+  assert.deepEqual(datasetCalls, [
+    { userId: 7, requestId: 'request-7', datasetRef: 'ds_transactions' },
+    { userId: 7, requestId: 'request-7', datasetRef: 'ds_budget' }
+  ])
+  assert.equal(result.toolCallCount, 1)
+})
+
 test('tool dataset metadata stored in state drops raw rows and unknown scope fields', async () => {
   const query = tool(async () => ({
     datasetRef: 'ds_safe',

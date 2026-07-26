@@ -47,11 +47,19 @@ test('query tool delegates to existing SQL query with the trusted runtime user',
   assert.equal(calls[0].userId, 7)
   assert.equal(calls[0].hints.month, '2026-07')
   assert.equal(calls[1].userId, 7)
-  assert.equal(calls[1].requestId, 'request-1')
-  assert.deepEqual(calls[1].summary, {
+  assert.equal(calls[1].hints.month, '2026-06')
+  assert.equal(calls[2].requestId, 'request-1')
+  assert.deepEqual(calls[2].summary, {
     count: 1,
     total: 25,
-    records: [{ amount: 25 }]
+    records: [{ amount: 25 }],
+    categoryStats: [{ category: '其他', total: 25, count: 1 }],
+    current: { total: 25, count: 1 },
+    previous: { total: 25, count: 1 },
+    dataPoints: [
+      { period: '2026-06', total: 25 },
+      { period: '2026-07', total: 25 }
+    ]
   })
   assert.deepEqual(result, {
     datasetRef: 'ds-1',
@@ -452,7 +460,8 @@ test('query tool routes paired date ranges away from the legacy month query', as
       startDate: '2026-07-01',
       endDate: '2026-07-31',
       queryKind: 'summary'
-    }
+    },
+    limit: 1000
   })
 })
 
@@ -550,7 +559,8 @@ test('batch calculation stores deterministic results and returns a dataset refer
     datasetRefs: ['ds_tx', 'ds_budget'],
     calculationTypes: [
       CALCULATION_TYPES.CATEGORY_RATIO,
-      CALCULATION_TYPES.PERIOD_COMPARISON
+      CALCULATION_TYPES.PERIOD_COMPARISON,
+      CALCULATION_TYPES.BUDGET_EXECUTION
     ]
   })
 
@@ -560,6 +570,72 @@ test('batch calculation stores deterministic results and returns a dataset refer
   ])
   assert.equal(puts[0].userId, 7)
   assert.equal(puts[0].requestId, 'request-1')
-  assert.equal(puts[0].summary.calculations.length, 2)
+  assert.equal(puts[0].summary.calculations.length, 3)
+  assert.deepEqual(puts[0].summary.calculations[2], {
+    type: CALCULATION_TYPES.BUDGET_EXECUTION,
+    result: { status: 'warning' }
+  })
   assert.deepEqual(result, { datasetRef: 'ds_metrics', count: 0, scope: { month: '2026-07' } })
+})
+
+test('query dataset enriches real calculator inputs from complete monthly rows', async () => {
+  const stored = new Map()
+  let nextRef = 0
+  const datasetStore = {
+    async put(input) {
+      const datasetRef = `ds_${++nextRef}`
+      stored.set(datasetRef, {
+        rows: input.rows,
+        summary: input.summary,
+        scope: input.scope
+      })
+      return { datasetRef, count: input.rows.length, scope: input.scope }
+    },
+    async get({ datasetRef }) {
+      return stored.get(datasetRef)
+    }
+  }
+  const tools = toolsByName({
+    runtime: { userId: 7, requestId: 'request-1', operationId: 'operation-1' },
+    queryFinanceSummary: async ({ hints, limit }) => {
+      assert.equal(limit, 1000)
+      if (hints.month === '2026-06') {
+        return { hints, count: 2, total: 80, records: [] }
+      }
+      return {
+        hints,
+        count: 3,
+        total: 100,
+        records: [
+          { category: '餐饮', amount: 60, date: '2026-07-02' },
+          { category: '交通', amount: 25, date: '2026-07-03' },
+          { category: '交通', amount: 15, date: '2026-07-04' }
+        ]
+      }
+    },
+    datasetStore,
+    checkBudget: async () => ({ status: 'ok' }),
+    recordFromPlannerTask: async () => ({}),
+    operationStore: {}
+  })
+
+  const transactions = await tools.query_transactions.invoke({
+    month: '2026-07',
+    type: 'expense'
+  })
+  const budget = await tools.check_budget.invoke({ month: '2026-07' })
+  const metrics = await tools.calculate_finance_metrics.invoke({
+    datasetRefs: [transactions.datasetRef, budget.datasetRef],
+    calculationTypes: [
+      CALCULATION_TYPES.CATEGORY_RATIO,
+      CALCULATION_TYPES.PERIOD_COMPARISON,
+      CALCULATION_TYPES.SPENDING_TREND
+    ]
+  })
+  const output = stored.get(metrics.datasetRef).summary.calculations
+
+  assert.equal(output[0].result.data.totalAmount, 100)
+  assert.equal(output[1].result.data.current.total, 100)
+  assert.equal(output[1].result.data.previous.total, 80)
+  assert.notEqual(output[2].result.success, false)
 })

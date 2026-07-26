@@ -123,7 +123,7 @@ export function createDomainAnalysisNode(tools) {
     })
 
     return {
-      datasetRefs: mergeDatasetRefs(state.datasetRefs, [
+      datasetRefs: mergeDatasetRefs([], [
         transactions,
         budget,
         ...calculations
