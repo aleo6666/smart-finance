@@ -136,6 +136,14 @@ test('calculation reads the scoped dataset and delegates to the existing calcula
           summary: {},
           scope: { month: '2026-07' }
         }
+      },
+      async put(input) {
+        calls.push(input)
+        return {
+          datasetRef: 'ds_metrics',
+          count: 0,
+          scope: input.scope
+        }
       }
     },
     executeCalculation: async task => (calls.push(task), { success: true }),
@@ -162,7 +170,23 @@ test('calculation reads the scoped dataset and delegates to the existing calcula
       categoryStats: [{ category: '餐饮', total: 75, count: 3 }]
     }
   })
-  assert.deepEqual(result, { success: true })
+  assert.deepEqual(calls[2], {
+    userId: 7,
+    requestId: 'request-1',
+    rows: [],
+    summary: {
+      calculations: [{
+        type: CALCULATION_TYPES.CATEGORY_RATIO,
+        result: { success: true }
+      }]
+    },
+    scope: { month: '2026-07' }
+  })
+  assert.deepEqual(result, {
+    datasetRef: 'ds_metrics',
+    count: 0,
+    scope: { month: '2026-07' }
+  })
 })
 
 test('budget tool injects the trusted user and returns structured checker output', async () => {
@@ -170,7 +194,16 @@ test('budget tool injects the trusted user and returns structured checker output
   const tools = toolsByName({
     runtime: { userId: 7, requestId: 'request-1', operationId: 'operation-1' },
     queryFinanceSummary: async () => ({}),
-    datasetStore: {},
+    datasetStore: {
+      async put(input) {
+        calls.push(input)
+        return {
+          datasetRef: 'ds_budget',
+          count: 0,
+          scope: input.scope
+        }
+      }
+    },
     executeCalculation: async () => ({}),
     checkBudget: async input => (calls.push(input), { status: 'warning', percent: 85 }),
     recordFromPlannerTask: async () => ({}),
@@ -180,11 +213,22 @@ test('budget tool injects the trusted user and returns structured checker output
     month: '2026-07',
     category: '餐饮',
     userId: 999
-  }), { status: 'warning', percent: 85 })
+  }), {
+    datasetRef: 'ds_budget',
+    count: 0,
+    scope: { month: '2026-07', category: '餐饮' }
+  })
   assert.deepEqual(calls[0], {
     userId: 7,
     month: '2026-07',
     category: '餐饮'
+  })
+  assert.deepEqual(calls[1], {
+    userId: 7,
+    requestId: 'request-1',
+    rows: [],
+    summary: { status: 'warning', percent: 85 },
+    scope: { month: '2026-07', category: '餐饮' }
   })
 })
 
@@ -472,4 +516,50 @@ test('query tool contains unknown dataset persistence failures', async () => {
       error.message === 'transaction query failed' &&
       !error.message.includes('secret')
   )
+})
+
+test('batch calculation stores deterministic results and returns a dataset reference', async () => {
+  const puts = []
+  const calculations = []
+  const tools = toolsByName({
+    runtime: { userId: 7, requestId: 'request-1', operationId: 'operation-1' },
+    queryFinanceSummary: async () => ({}),
+    datasetStore: {
+      async get(input) {
+        assert.equal(input.userId, 7)
+        assert.equal(input.requestId, 'request-1')
+        return input.datasetRef === 'ds_tx'
+          ? { rows: [{ category: '餐饮', total: 75, count: 3 }], summary: {}, scope: { month: '2026-07' } }
+          : { rows: [], summary: { status: 'warning' }, scope: { month: '2026-07' } }
+      },
+      async put(input) {
+        puts.push(input)
+        return { datasetRef: 'ds_metrics', count: 0, scope: input.scope }
+      }
+    },
+    executeCalculation: async task => {
+      calculations.push(task)
+      return { success: true, type: task.type }
+    },
+    checkBudget: async () => ({}),
+    recordFromPlannerTask: async () => ({}),
+    operationStore: {}
+  })
+
+  const result = await tools.calculate_finance_metrics.invoke({
+    datasetRefs: ['ds_tx', 'ds_budget'],
+    calculationTypes: [
+      CALCULATION_TYPES.CATEGORY_RATIO,
+      CALCULATION_TYPES.PERIOD_COMPARISON
+    ]
+  })
+
+  assert.deepEqual(calculations.map(item => item.type), [
+    CALCULATION_TYPES.CATEGORY_RATIO,
+    CALCULATION_TYPES.PERIOD_COMPARISON
+  ])
+  assert.equal(puts[0].userId, 7)
+  assert.equal(puts[0].requestId, 'request-1')
+  assert.equal(puts[0].summary.calculations.length, 2)
+  assert.deepEqual(result, { datasetRef: 'ds_metrics', count: 0, scope: { month: '2026-07' } })
 })

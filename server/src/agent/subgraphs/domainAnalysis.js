@@ -86,24 +86,15 @@ async function runCalculations({
   const transactionRef = transactions?.datasetRef
   const budgetRef = budget?.datasetRef
   if (typeof transactionRef !== 'string') return []
-
-  if (!hasInvokeTool(calculateFinanceMetrics)) {
-    return [await calculateFinanceMetrics({
-      ...scope,
-      datasetRefs: [transactionRef, budgetRef].filter(Boolean),
-      calculationTypes: DEFAULT_CALCULATION_TYPES
-    }, config)]
+  const input = {
+    ...scope,
+    datasetRefs: [transactionRef, budgetRef].filter(Boolean),
+    calculationTypes: DEFAULT_CALCULATION_TYPES
   }
-
-  const results = []
-  for (const calculationType of DEFAULT_CALCULATION_TYPES) {
-    results.push(await calculateFinanceMetrics.invoke({
-      ...scope,
-      datasetRef: transactionRef,
-      calculationType
-    }, config))
-  }
-  return results
+  const result = hasInvokeTool(calculateFinanceMetrics)
+    ? await calculateFinanceMetrics.invoke(input, config)
+    : await calculateFinanceMetrics(input, config)
+  return [result]
 }
 
 export function createDomainAnalysisNode(tools) {

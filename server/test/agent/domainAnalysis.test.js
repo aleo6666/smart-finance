@@ -104,3 +104,24 @@ test('domain analysis preserves existing dataset refs and appends metadata only'
     { datasetRef: 'ds_metrics', count: 0, scope: {} }
   ])
 })
+
+test('domain analysis passes both dataset refs to invoke-style calculation tool once', async () => {
+  const calculationCalls = []
+  const subgraph = createDomainAnalysisSubgraph({
+    queryTransactions: { invoke: async () => ({ datasetRef: 'ds_tx' }) },
+    checkBudget: { invoke: async () => ({ datasetRef: 'ds_budget' }) },
+    calculateFinanceMetrics: {
+      async invoke(input) {
+        calculationCalls.push(input)
+        return { datasetRef: 'ds_metrics' }
+      }
+    }
+  })
+
+  const result = await subgraph.invoke(fixtureState())
+
+  assert.equal(calculationCalls.length, 1)
+  assert.deepEqual(calculationCalls[0].datasetRefs, ['ds_tx', 'ds_budget'])
+  assert.ok(calculationCalls[0].calculationTypes.length > 1)
+  assert.equal(result.datasetRefs.at(-1).datasetRef, 'ds_metrics')
+})

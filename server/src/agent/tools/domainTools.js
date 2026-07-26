@@ -250,32 +250,75 @@ export function createDomainTools({
     })
   })
 
+  const datasetRefSchema = z.string().regex(/^ds_[A-Za-z0-9-]{1,128}$/)
   const calculateFinanceMetrics = tool(async input => {
-    const dataset = await datasetStore.get({
+    const datasetRefs = input.datasetRefs ?? [input.datasetRef]
+    const requestedTypes = input.calculationTypes ?? [input.calculationType]
+    const datasets = await Promise.all(datasetRefs.map(datasetRef =>
+      datasetStore.get({
+        userId: runtime.userId,
+        requestId: runtime.requestId,
+        datasetRef
+      })
+    ))
+    const primaryDataset = datasets[0]
+    const calculations = await Promise.all(requestedTypes.map(async calculationType => ({
+      type: calculationType,
+      result: await executeCalculation({
+        type: calculationType,
+        params: calculationParams(calculationType, primaryDataset, input)
+      })
+    })))
+    return datasetStore.put({
       userId: runtime.userId,
       requestId: runtime.requestId,
-      datasetRef: input.datasetRef
-    })
-    return executeCalculation({
-      type: input.calculationType,
-      params: calculationParams(input.calculationType, dataset, input)
+      rows: [],
+      summary: { calculations },
+      scope: primaryDataset.scope ?? {}
     })
   }, {
     name: 'calculate_finance_metrics',
     description: '基于当前请求的账单数据集执行确定性财务计算',
     schema: z.object({
-      datasetRef: z.string().regex(/^ds_[A-Za-z0-9-]{1,128}$/),
-      calculationType: z.enum(calculationTypes),
+      datasetRef: datasetRefSchema.optional(),
+      datasetRefs: z.array(datasetRefSchema).min(1).max(8).optional(),
+      calculationType: z.enum(calculationTypes).optional(),
+      calculationTypes: z.array(z.enum(calculationTypes))
+        .min(1)
+        .max(calculationTypes.length)
+        .optional(),
       month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional(),
       periodLabel: z.string().trim().min(1).max(64).optional()
+    }).superRefine((value, context) => {
+      if (!value.datasetRef && !value.datasetRefs) {
+        context.addIssue({
+          code: 'custom',
+          message: 'a dataset reference is required'
+        })
+      }
+      if (!value.calculationType && !value.calculationTypes) {
+        context.addIssue({
+          code: 'custom',
+          message: 'a calculation type is required'
+        })
+      }
     })
   })
 
-  const checkBudgetTool = tool(async input => checkBudget({
-    userId: runtime.userId,
-    month: input.month,
-    category: input.category
-  }), {
+  const checkBudgetTool = tool(async input => {
+    const result = await checkBudget({
+      userId: runtime.userId,
+      month: input.month,
+      category: input.category
+    })
+    return datasetStore.put({
+      userId: runtime.userId,
+      requestId: runtime.requestId,
+      rows: [],
+      summary: result,
+      scope: queryScope(input)
+    })
+  }, {
     name: 'check_budget',
     description: '检查当前用户指定月份和分类的预算使用情况',
     schema: z.object({
