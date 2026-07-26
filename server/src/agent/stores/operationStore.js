@@ -82,7 +82,7 @@ function parseResult(value) {
   try {
     return JSON.parse(value)
   } catch {
-    return null
+    throw new OperationStoreUnavailableError()
   }
 }
 

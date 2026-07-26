@@ -426,3 +426,50 @@ test('query tool requires a complete ordered date range', async () => {
     await assert.rejects(tools.query_transactions.invoke(input))
   }
 })
+
+test('query tool contains legacy and date-range database details', async () => {
+  for (const useRange of [false, true]) {
+    const tools = toolsByName({
+      runtime: { userId: 7, requestId: 'request-1', operationId: 'operation-1' },
+      queryFinanceSummary: async () => {
+        throw new Error('SELECT * FROM records password=legacy-secret')
+      },
+      queryFinanceDateRange: async () => {
+        throw new Error('SELECT date FROM records password=range-secret')
+      },
+      datasetStore: {},
+      operationStore: {}
+    })
+    const input = useRange
+      ? { startDate: '2026-07-01', endDate: '2026-07-31' }
+      : { month: '2026-07' }
+    await assert.rejects(
+      tools.query_transactions.invoke(input),
+      error =>
+        error.code === 'QUERY_TRANSACTIONS_FAILED' &&
+        error.statusCode === 503 &&
+        error.message === 'transaction query failed' &&
+        !error.message.includes('secret')
+    )
+  }
+})
+
+test('query tool contains unknown dataset persistence failures', async () => {
+  const tools = toolsByName({
+    runtime: { userId: 7, requestId: 'request-1', operationId: 'operation-1' },
+    queryFinanceSummary: async () => ({ records: [] }),
+    datasetStore: {
+      async put() {
+        throw new Error('redis://:secret@internal')
+      }
+    },
+    operationStore: {}
+  })
+  await assert.rejects(
+    tools.query_transactions.invoke({ month: '2026-07' }),
+    error =>
+      error.code === 'QUERY_TRANSACTIONS_FAILED' &&
+      error.message === 'transaction query failed' &&
+      !error.message.includes('secret')
+  )
+})

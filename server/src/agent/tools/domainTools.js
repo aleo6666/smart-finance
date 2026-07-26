@@ -12,6 +12,12 @@ import {
   retrieveBudgetConfig as defaultRetrieveBudgetConfig,
   retrieveCategoryStats as defaultRetrieveCategoryStats
 } from '../../services/retrievalAgent.js'
+import {
+  DatasetScopeMismatchError,
+  DatasetStoreUnavailableError,
+  DatasetValidationError
+} from '../stores/datasetStore.js'
+import { RuntimeContextValidationError } from '../runtime.js'
 
 const calculationTypes = Object.values(CALCULATION_TYPES)
 
@@ -23,6 +29,14 @@ export class DomainToolExecutionError extends Error {
     this.statusCode = statusCode
     this.expose = true
   }
+}
+
+function isTrustedQueryError(error) {
+  return error instanceof DomainToolExecutionError ||
+    error instanceof DatasetValidationError ||
+    error instanceof DatasetScopeMismatchError ||
+    error instanceof DatasetStoreUnavailableError ||
+    error instanceof RuntimeContextValidationError
 }
 
 function queryScope(input) {
@@ -187,20 +201,28 @@ export function createDomainTools({
   recordFromPlannerTask = defaultRecordFromPlannerTask
 }) {
   const queryTransactions = tool(async input => {
-    const scope = queryScope(input)
-    const summary = await (input.startDate
-      ? queryFinanceDateRangeAdapter
-      : queryFinanceSummary)({
-      userId: runtime.userId,
-      hints: scope
-    })
-    return datasetStore.put({
-      userId: runtime.userId,
-      requestId: runtime.requestId,
-      rows: Array.isArray(summary.records) ? summary.records : [],
-      summary,
-      scope
-    })
+    try {
+      const scope = queryScope(input)
+      const summary = await (input.startDate
+        ? queryFinanceDateRangeAdapter
+        : queryFinanceSummary)({
+        userId: runtime.userId,
+        hints: scope
+      })
+      return await datasetStore.put({
+        userId: runtime.userId,
+        requestId: runtime.requestId,
+        rows: Array.isArray(summary.records) ? summary.records : [],
+        summary,
+        scope
+      })
+    } catch (error) {
+      if (isTrustedQueryError(error)) throw error
+      throw new DomainToolExecutionError(
+        'QUERY_TRANSACTIONS_FAILED',
+        'transaction query failed'
+      )
+    }
   }, {
     name: 'query_transactions',
     description: '按结构化条件精确查询当前用户账单，返回当前请求可用的数据集引用',

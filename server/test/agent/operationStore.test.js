@@ -278,3 +278,38 @@ test('failed and unknown stored states never expose persisted database values', 
     assert.equal(claim.status, 'owner')
   }
 })
+
+test('succeeded replay rejects corrupted result JSON but accepts JSON null', async () => {
+  for (const [stored, expected] of [
+    ['not-json mysql-secret', 'reject'],
+    ['null', null]
+  ]) {
+    const db = createFakeDb()
+    const store = createOperationStore(db)
+    await store.claim({
+      userId: 7,
+      operationId: 'operation-replay',
+      operationType: 'record_transaction',
+      input: {}
+    })
+    db.rows[0].status = 'succeeded'
+    db.rows[0].result_json = stored
+    const replay = store.claim({
+      userId: 7,
+      operationId: 'operation-replay',
+      operationType: 'record_transaction',
+      input: {}
+    })
+    if (expected === 'reject') {
+      await assert.rejects(
+        replay,
+        error =>
+          error.code === 'OPERATION_STORE_UNAVAILABLE' &&
+          error.statusCode === 503 &&
+          !error.message.includes('mysql-secret')
+      )
+    } else {
+      assert.deepEqual(await replay, { status: 'succeeded', result: null })
+    }
+  }
+})
