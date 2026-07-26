@@ -65,6 +65,7 @@ function categoryStats(records) {
 }
 
 function analysisSummary(summary, previous, scope) {
+  const { records: _records, ...baseSummary } = summary
   const current = {
     total: Number(summary.total || 0),
     count: Number(summary.count || 0)
@@ -81,11 +82,9 @@ function analysisSummary(summary, previous, scope) {
       ]
     : []
   return {
-    ...summary,
-    categoryStats: categoryStats(Array.isArray(summary.records) ? summary.records : []),
+    ...baseSummary,
     current,
-    previous: previousPeriod,
-    dataPoints
+    ...(scope.month ? { previous: previousPeriod, dataPoints } : {})
   }
 }
 
@@ -139,6 +138,39 @@ function applyDateRangeFilters(query, { userId, hints }) {
   if (hints.category) query.where('category', hints.category)
   if (hints.type) query.where('type', hints.type)
   return query
+}
+
+function applyCategoryFilters(query, { userId, hints }) {
+  query.where('user_id', userId)
+  if (hints.month) {
+    query.whereRaw('DATE_FORMAT(date, "%Y-%m") = ?', [hints.month])
+  }
+  if (hints.startDate) query.where('date', '>=', hints.startDate)
+  if (hints.endDate) query.where('date', '<=', hints.endDate)
+  if (hints.category) query.where('category', hints.category)
+  if (hints.type) query.where('type', hints.type)
+  return query
+}
+
+export async function queryFinanceCategoryStats({
+  userId,
+  hints,
+  dbClient = db
+}) {
+  const rows = await applyCategoryFilters(dbClient('records'), {
+    userId,
+    hints
+  })
+    .select('category')
+    .select(dbClient.raw('SUM(COALESCE(amount_cny, amount)) as total'))
+    .select(dbClient.raw('COUNT(*) as count'))
+    .groupBy('category')
+    .orderBy('total', 'desc')
+  return rows.map(row => ({
+    category: row.category || '其他',
+    total: Number(row.total || 0),
+    count: Number(row.count || 0)
+  }))
 }
 
 export async function queryFinanceDateRange({
@@ -242,6 +274,7 @@ export function createDomainTools({
   operationStore,
   queryFinanceSummary = defaultQueryFinanceSummary,
   queryFinanceDateRange: queryFinanceDateRangeAdapter = queryFinanceDateRange,
+  queryFinanceCategoryStats: queryFinanceCategoryStatsAdapter,
   executeCalculation = defaultExecuteCalculation,
   checkBudget = checkBudgetWithExistingServices,
   recordFromPlannerTask = defaultRecordFromPlannerTask
@@ -252,23 +285,34 @@ export function createDomainTools({
       const summary = await (input.startDate
         ? queryFinanceDateRangeAdapter({
             userId: runtime.userId,
-            hints: scope,
-            limit: 1000
+            hints: scope
           })
         : queryFinanceSummary({
             userId: runtime.userId,
-            hints: scope,
-            limit: 1000
+            hints: scope
           }))
+      const exactCategoryStats = queryFinanceCategoryStatsAdapter
+        ? await queryFinanceCategoryStatsAdapter({
+            userId: runtime.userId,
+            hints: scope
+          })
+        : queryFinanceSummary === defaultQueryFinanceSummary
+          ? await queryFinanceCategoryStats({
+              userId: runtime.userId,
+              hints: scope
+            })
+          : categoryStats(Array.isArray(summary.records) ? summary.records : [])
       const priorMonth = previousMonth(scope.month)
       const previous = priorMonth && !input.startDate
         ? await queryFinanceSummary({
             userId: runtime.userId,
-            hints: { ...scope, month: priorMonth, queryKind: 'summary' },
-            limit: 1000
+            hints: { ...scope, month: priorMonth, queryKind: 'summary' }
           })
         : null
-      const enrichedSummary = analysisSummary(summary, previous, scope)
+      const enrichedSummary = {
+        ...analysisSummary(summary, previous, scope),
+        categoryStats: exactCategoryStats
+      }
       return await datasetStore.put({
         userId: runtime.userId,
         requestId: runtime.requestId,

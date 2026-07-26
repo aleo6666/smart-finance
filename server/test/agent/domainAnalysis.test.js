@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { AIMessage } from '@langchain/core/messages'
+import { CALCULATION_TYPES } from '../../src/services/calculatorAgent.js'
 import { createDomainAnalysisSubgraph } from '../../src/agent/subgraphs/domainAnalysis.js'
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 0))
@@ -123,4 +124,41 @@ test('domain analysis passes both dataset refs to invoke-style calculation tool 
   assert.deepEqual(calculationCalls[0].datasetRefs, ['ds_tx', 'ds_budget'])
   assert.ok(calculationCalls[0].calculationTypes.length > 1)
   assert.equal(result.datasetRefs.at(-1).datasetRef, 'ds_metrics')
+})
+
+test('domain analysis skips period comparison and trend without a monthly scope', async () => {
+  let calculationInput
+  const subgraph = createDomainAnalysisSubgraph({
+    queryTransactions: { invoke: async () => ({ datasetRef: 'ds_tx' }) },
+    checkBudget: { invoke: async () => ({ datasetRef: 'ds_budget' }) },
+    calculateFinanceMetrics: {
+      async invoke(input) {
+        calculationInput = input
+        return { datasetRef: 'ds_metrics' }
+      }
+    }
+  })
+
+  await subgraph.invoke(fixtureState({
+    messages: [
+      new AIMessage({
+        content: '',
+        tool_calls: [{
+          id: 'analysis-range',
+          name: 'query_transactions',
+          args: { startDate: '2026-07-01', endDate: '2026-07-31' },
+          type: 'tool_call'
+        }]
+      })
+    ]
+  }))
+
+  assert.equal(
+    calculationInput.calculationTypes.includes(CALCULATION_TYPES.PERIOD_COMPARISON),
+    false
+  )
+  assert.equal(
+    calculationInput.calculationTypes.includes(CALCULATION_TYPES.SPENDING_TREND),
+    false
+  )
 })

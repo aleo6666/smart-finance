@@ -7,6 +7,15 @@ const DEFAULT_CALCULATION_TYPES = Object.freeze([
   CALCULATION_TYPES.SPENDING_TREND
 ])
 
+function calculationTypesForScope(scope) {
+  return scope.month
+    ? DEFAULT_CALCULATION_TYPES
+    : DEFAULT_CALCULATION_TYPES.filter(type =>
+        type !== CALCULATION_TYPES.PERIOD_COMPARISON &&
+        type !== CALCULATION_TYPES.SPENDING_TREND
+    )
+}
+
 const SCOPE_FIELDS = new Set([
   'month',
   'startDate',
@@ -89,7 +98,7 @@ async function runCalculations({
   const input = {
     ...scope,
     datasetRefs: [transactionRef, budgetRef].filter(Boolean),
-    calculationTypes: DEFAULT_CALCULATION_TYPES
+    calculationTypes: calculationTypesForScope(scope)
   }
   const result = hasInvokeTool(calculateFinanceMetrics)
     ? await calculateFinanceMetrics.invoke(input, config)

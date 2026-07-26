@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   checkBudgetWithExistingServices,
   createDomainTools,
+  queryFinanceCategoryStats,
   queryFinanceDateRange
 } from '../../src/agent/tools/domainTools.js'
 import { CALCULATION_TYPES } from '../../src/services/calculatorAgent.js'
@@ -52,7 +53,6 @@ test('query tool delegates to existing SQL query with the trusted runtime user',
   assert.deepEqual(calls[2].summary, {
     count: 1,
     total: 25,
-    records: [{ amount: 25 }],
     categoryStats: [{ category: '其他', total: 25, count: 1 }],
     current: { total: 25, count: 1 },
     previous: { total: 25, count: 1 },
@@ -432,6 +432,56 @@ test('date-range adapter uses parameterized user and inclusive date predicates',
   assert.equal(result.records.length, 2)
 })
 
+test('category aggregate adapter applies trusted filters and normalizes SQL totals', async () => {
+  const calls = []
+  const rows = [{ category: '餐饮', total: '75.50', count: '3' }]
+  const builder = {
+    where(...args) {
+      calls.push(['where', ...args])
+      return this
+    },
+    whereRaw(...args) {
+      calls.push(['whereRaw', ...args])
+      return this
+    },
+    select(...args) {
+      calls.push(['select', ...args])
+      return this
+    },
+    groupBy(...args) {
+      calls.push(['groupBy', ...args])
+      return this
+    },
+    orderBy(...args) {
+      calls.push(['orderBy', ...args])
+      return this
+    },
+    then(resolve) {
+      return Promise.resolve(rows).then(resolve)
+    }
+  }
+  const dbClient = table => {
+    assert.equal(table, 'records')
+    return builder
+  }
+  dbClient.raw = value => `RAW:${value}`
+
+  const result = await queryFinanceCategoryStats({
+    userId: 7,
+    hints: {
+      month: '2026-07',
+      category: '餐饮',
+      type: 'expense'
+    },
+    dbClient
+  })
+
+  assert.deepEqual(result, [{ category: '餐饮', total: 75.5, count: 3 }])
+  assert.equal(JSON.stringify(calls).includes('["where","user_id",7]'), true)
+  assert.equal(JSON.stringify(calls).includes('["where","category","餐饮"]'), true)
+  assert.equal(JSON.stringify(calls).includes('["where","type","expense"]'), true)
+})
+
 test('query tool routes paired date ranges away from the legacy month query', async () => {
   let legacyCalls = 0
   const rangeCalls = []
@@ -460,8 +510,7 @@ test('query tool routes paired date ranges away from the legacy month query', as
       startDate: '2026-07-01',
       endDate: '2026-07-31',
       queryKind: 'summary'
-    },
-    limit: 1000
+    }
   })
 })
 
@@ -578,7 +627,7 @@ test('batch calculation stores deterministic results and returns a dataset refer
   assert.deepEqual(result, { datasetRef: 'ds_metrics', count: 0, scope: { month: '2026-07' } })
 })
 
-test('query dataset enriches real calculator inputs from complete monthly rows', async () => {
+test('query dataset enriches real calculator inputs for a monthly scope', async () => {
   const stored = new Map()
   let nextRef = 0
   const datasetStore = {
@@ -597,8 +646,7 @@ test('query dataset enriches real calculator inputs from complete monthly rows',
   }
   const tools = toolsByName({
     runtime: { userId: 7, requestId: 'request-1', operationId: 'operation-1' },
-    queryFinanceSummary: async ({ hints, limit }) => {
-      assert.equal(limit, 1000)
+    queryFinanceSummary: async ({ hints }) => {
       if (hints.month === '2026-06') {
         return { hints, count: 2, total: 80, records: [] }
       }
@@ -638,4 +686,43 @@ test('query dataset enriches real calculator inputs from complete monthly rows',
   assert.equal(output[1].result.data.current.total, 100)
   assert.equal(output[1].result.data.previous.total, 80)
   assert.notEqual(output[2].result.success, false)
+})
+
+test('query dataset stores display rows once and uses exact category aggregates', async () => {
+  let stored
+  const tools = toolsByName({
+    runtime: { userId: 7, requestId: 'request-1', operationId: 'operation-1' },
+    queryFinanceSummary: async ({ hints }) => ({
+      hints,
+      count: 5000,
+      total: 120000,
+      records: [
+        { category: '餐饮', amount: 25, description: 'display row' }
+      ]
+    }),
+    queryFinanceCategoryStats: async () => [
+      { category: '餐饮', total: 70000, count: 3000 },
+      { category: '交通', total: 50000, count: 2000 }
+    ],
+    datasetStore: {
+      async put(input) {
+        stored = input
+        return { datasetRef: 'ds_query', count: input.rows.length, scope: input.scope }
+      }
+    },
+    checkBudget: async () => ({}),
+    recordFromPlannerTask: async () => ({}),
+    operationStore: {}
+  })
+
+  await tools.query_transactions.invoke({ month: '2026-07', type: 'expense' })
+
+  assert.deepEqual(stored.rows, [
+    { category: '餐饮', amount: 25, description: 'display row' }
+  ])
+  assert.equal(Object.hasOwn(stored.summary, 'records'), false)
+  assert.deepEqual(stored.summary.categoryStats, [
+    { category: '餐饮', total: 70000, count: 3000 },
+    { category: '交通', total: 50000, count: 2000 }
+  ])
 })
