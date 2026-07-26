@@ -18,6 +18,7 @@ import {
   DatasetValidationError
 } from '../stores/datasetStore.js'
 import { RuntimeContextValidationError } from '../runtime.js'
+import { hashOperation } from '../stores/operationStore.js'
 
 const calculationTypes = Object.values(CALCULATION_TYPES)
 
@@ -150,6 +151,30 @@ function applyCategoryFilters(query, { userId, hints }) {
   if (hints.category) query.where('category', hints.category)
   if (hints.type) query.where('type', hints.type)
   return query
+}
+
+function validRecordPreclaim(input, runtime, toolRuntime) {
+  const context = toolRuntime?.context
+  const preclaim = context?.operationPreclaim
+  if (
+    !preclaim ||
+    typeof preclaim !== 'object' ||
+    Array.isArray(preclaim) ||
+    context.userId !== runtime.userId ||
+    preclaim.userId !== runtime.userId ||
+    context.operationId !== preclaim.operationId ||
+    preclaim.operationType !== 'record_transaction'
+  ) {
+    return null
+  }
+  const argsHash = hashOperation(input)
+  const inputHash = hashOperation({
+    operationType: 'record_transaction',
+    input
+  })
+  return preclaim.argsHash === argsHash && preclaim.inputHash === inputHash
+    ? preclaim
+    : null
 }
 
 export async function queryFinanceCategoryStats({
@@ -433,13 +458,17 @@ export function createDomainTools({
     })
   })
 
-  const recordTransaction = tool(async input => {
-    const claim = await operationStore.claim({
-      userId: runtime.userId,
-      operationId: runtime.operationId,
-      operationType: 'record_transaction',
-      input
-    })
+  const recordTransaction = tool(async (input, toolRuntime) => {
+    const preclaim = validRecordPreclaim(input, runtime, toolRuntime)
+    const operationId = preclaim?.operationId ?? runtime.operationId
+    const claim = preclaim
+      ? { status: 'owner', inputHash: preclaim.inputHash }
+      : await operationStore.claim({
+          userId: runtime.userId,
+          operationId,
+          operationType: 'record_transaction',
+          input
+        })
     if (claim.status === 'succeeded') return claim.result
     if (claim.status === 'in_progress') return { status: 'in_progress' }
     if (claim.status !== 'owner') {
@@ -458,7 +487,7 @@ export function createDomainTools({
       })
       await operationStore.succeed({
         userId: runtime.userId,
-        operationId: runtime.operationId,
+        operationId,
         inputHash: claim.inputHash,
         result
       })
@@ -466,7 +495,7 @@ export function createDomainTools({
     } catch {
       await operationStore.fail({
         userId: runtime.userId,
-        operationId: runtime.operationId,
+        operationId,
         inputHash: claim.inputHash,
         errorCode: 'RECORD_TRANSACTION_FAILED'
       }).catch(() => {})
@@ -489,7 +518,8 @@ export function createDomainTools({
       merchant: z.string().max(128).optional(),
       project: z.string().max(128).optional(),
       member: z.string().max(128).optional()
-    })
+    }),
+    metadata: { handlesOperationPreclaim: true }
   })
 
   return [

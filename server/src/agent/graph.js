@@ -1,6 +1,7 @@
 import {
   AIMessage,
   RemoveMessage,
+  ToolMessage,
   coerceMessageLikeToMessage,
   isAIMessage
 } from '@langchain/core/messages'
@@ -21,8 +22,10 @@ import { createValidateToolCallNode } from './nodes/validateToolCall.js'
 import {
   createPendingConfirmationNode,
   createRiskNode,
-  hasWriteToolCall
+  hasWriteToolCall,
+  isValidPendingConfirmation
 } from './nodes/riskAndConfirmation.js'
+import { hashOperation } from './stores/operationStore.js'
 
 const DATASET_SCOPE_FIELDS = new Set([
   'month',
@@ -185,6 +188,43 @@ function responseText(message) {
   return typeof message?.content === 'string' ? message.content.trim() : ''
 }
 
+function toolMessage({
+  id,
+  name,
+  value
+}) {
+  return new ToolMessage({
+    content: JSON.stringify(value ?? null),
+    tool_call_id: id,
+    name
+  })
+}
+
+function resolvedToolMessages(calls, executedMessages) {
+  const executedById = new Map(executedMessages.map(
+    message => [message.tool_call_id, message]
+  ))
+  return calls.map(call => executedById.get(call.id) ?? toolMessage({
+    id: call.id,
+    name: call.name,
+    value: {
+      status: 'error',
+      error: { code: 'TOOL_CALL_RETRY_REQUIRED' }
+    }
+  }))
+}
+
+function resultFromToolMessages(messages, toolCallId) {
+  const message = messages.find(item => item.tool_call_id === toolCallId)
+  if (!message) return null
+  if (typeof message.content !== 'string') return message.content
+  try {
+    return JSON.parse(message.content)
+  } catch {
+    return null
+  }
+}
+
 function createFinalizeNode() {
   return async state => {
     const fatalErrors = (state.errors ?? []).filter(item => item?.fatal === true)
@@ -221,7 +261,8 @@ export function createAgentGraph({
   finalizeResponse = createFinalizeNode(),
   postTurnMemory = async () => ({}),
   observe = async () => ({}),
-  confirmationNow = Date.now
+  confirmationNow = Date.now,
+  operationStore
 }) {
   if (!model || typeof model.bindTools !== 'function') {
     throw new TypeError('model must provide bindTools')
@@ -252,6 +293,7 @@ export function createAgentGraph({
     now: confirmationNow
   })
   const boundModel = model.bindTools(tools)
+  const toolsByName = new Map(tools.map(item => [item.name, item]))
   const toolNode = new ToolNode(safeExecutableTools(tools), {
     handleToolErrors: false
   })
@@ -302,12 +344,78 @@ export function createAgentGraph({
 
   const confirmedWriteTools = async (state, graphConfig) => {
     const pending = state.pendingConfirmation
-    const sourceCall = toolCallsFromLastMessage(state).find(
+    const sourceCalls = toolCallsFromLastMessage(state)
+    const sourceCall = sourceCalls.find(
       call => call?.name === pending?.toolName
     )
-    if (!pending || pending.approved !== true || !sourceCall) {
+    if (
+      !isValidPendingConfirmation(pending) ||
+      pending.approved !== true ||
+      !sourceCall ||
+      !operationStore ||
+      typeof operationStore.claim !== 'function'
+    ) {
       return {
         errors: [safeError('CONFIRMATION_STATE_INVALID', 'domain_tools')]
+      }
+    }
+
+    let claim
+    try {
+      claim = await operationStore.claim({
+        userId: state.userId,
+        operationId: pending.operationId,
+        operationType: pending.toolName,
+        input: pending.args
+      })
+    } catch {
+      return {
+        errors: [safeError('TOOL_EXECUTION_FAILED', 'domain_tools')]
+      }
+    }
+
+    if (claim.status === 'succeeded' || claim.status === 'in_progress') {
+      const value = claim.status === 'succeeded'
+        ? claim.result
+        : { status: 'in_progress' }
+      return {
+        messages: resolvedToolMessages(sourceCalls, [toolMessage({
+          id: sourceCall.id,
+          name: pending.toolName,
+          value
+        })]),
+        pendingConfirmation: {
+          ...pending,
+          executed: true
+        }
+      }
+    }
+    const expectedInputHash = hashOperation({
+      operationType: pending.toolName,
+      input: pending.args
+    })
+    if (
+      claim.status !== 'owner' ||
+      claim.inputHash !== expectedInputHash
+    ) {
+      return {
+        errors: [safeError('CONFIRMATION_STATE_INVALID', 'domain_tools')]
+      }
+    }
+
+    const claimedConfig = {
+      ...graphConfig,
+      context: {
+        ...(graphConfig?.context ?? {}),
+        userId: state.userId,
+        operationId: pending.operationId,
+        operationPreclaim: {
+          userId: state.userId,
+          operationId: pending.operationId,
+          operationType: pending.toolName,
+          argsHash: pending.argsHash,
+          inputHash: claim.inputHash
+        }
       }
     }
     try {
@@ -322,15 +430,49 @@ export function createAgentGraph({
             type: 'tool_call'
           }]
         })]
-      }, graphConfig)
+      }, claimedConfig)
+      const executedMessages = Array.isArray(output?.messages)
+        ? output.messages
+        : []
+      const toolHandlesClaim = toolsByName.get(pending.toolName)
+        ?.metadata?.handlesOperationPreclaim === true
+      if (!toolHandlesClaim) {
+        if (
+          typeof operationStore.succeed !== 'function' ||
+          typeof operationStore.fail !== 'function'
+        ) {
+          return {
+            errors: [safeError('CONFIRMATION_STATE_INVALID', 'domain_tools')]
+          }
+        }
+        await operationStore.succeed({
+          userId: state.userId,
+          operationId: pending.operationId,
+          inputHash: claim.inputHash,
+          result: resultFromToolMessages(executedMessages, sourceCall.id)
+        })
+      }
       return {
         ...output,
+        messages: resolvedToolMessages(sourceCalls, executedMessages),
         pendingConfirmation: {
           ...pending,
           executed: true
         }
       }
     } catch {
+      if (
+        toolsByName.get(pending.toolName)
+          ?.metadata?.handlesOperationPreclaim !== true &&
+        typeof operationStore.fail === 'function'
+      ) {
+        await operationStore.fail({
+          userId: state.userId,
+          operationId: pending.operationId,
+          inputHash: claim.inputHash,
+          errorCode: 'TOOL_EXECUTION_FAILED'
+        }).catch(() => {})
+      }
       return {
         errors: [safeError('TOOL_EXECUTION_FAILED', 'domain_tools')]
       }

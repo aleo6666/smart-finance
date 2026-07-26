@@ -6,6 +6,7 @@ import {
   queryFinanceCategoryStats,
   queryFinanceDateRange
 } from '../../src/agent/tools/domainTools.js'
+import { hashOperation } from '../../src/agent/stores/operationStore.js'
 import { CALCULATION_TYPES } from '../../src/services/calculatorAgent.js'
 
 function toolsByName(options) {
@@ -70,6 +71,7 @@ test('query tool delegates to existing SQL query with the trusted runtime user',
 
 test('record tool lets only an idempotency owner call the existing recorder', async () => {
   const recorderCalls = []
+  const claimCalls = []
   const tools = toolsByName({
     runtime: {
       userId: 7,
@@ -85,7 +87,8 @@ test('record tool lets only an idempotency owner call the existing recorder', as
       return { recordIds: [8] }
     },
     operationStore: {
-      async claim() {
+      async claim(input) {
+        claimCalls.push(input)
         return { status: 'owner', inputHash: 'hash-1' }
       },
       async succeed() {},
@@ -104,8 +107,172 @@ test('record tool lets only an idempotency owner call the existing recorder', as
   })
 
   assert.equal(recorderCalls.length, 1)
+  assert.deepEqual(claimCalls, [{
+    userId: 7,
+    operationId: 'operation-1',
+    operationType: 'record_transaction',
+    input: {
+      amount: 25,
+      type: 'expense',
+      category: '交通',
+      date: '2026-07-25',
+      currency: 'CNY'
+    }
+  }])
   assert.equal(recorderCalls[0].task.payload.userId, 7)
   assert.equal(recorderCalls[0].task.payload.deviceId, 'user-7')
+})
+
+test('record tool accepts a matching trusted preclaim without claiming twice', async () => {
+  const input = {
+    amount: 25,
+    type: 'expense',
+    category: '交通',
+    currency: 'CNY'
+  }
+  const preclaimInputHash = hashOperation({
+    operationType: 'record_transaction',
+    input
+  })
+  const calls = { claim: 0, write: 0, succeed: [] }
+  const tools = toolsByName({
+    runtime: {
+      userId: 7,
+      requestId: 'request-1',
+      operationId: 'initial-operation'
+    },
+    queryFinanceSummary: async () => ({}),
+    datasetStore: {},
+    executeCalculation: async () => ({}),
+    checkBudget: async () => ({}),
+    recordFromPlannerTask: async () => {
+      calls.write += 1
+      return { recordIds: [8] }
+    },
+    operationStore: {
+      async claim() {
+        calls.claim += 1
+        return { status: 'in_progress' }
+      },
+      async succeed(value) {
+        calls.succeed.push(value)
+      },
+      async fail() {}
+    }
+  })
+
+  assert.deepEqual(await tools.record_transaction.invoke(input, {
+    context: {
+      userId: 7,
+      operationId: 'persisted-operation',
+      operationPreclaim: {
+        userId: 7,
+        operationId: 'persisted-operation',
+        operationType: 'record_transaction',
+        argsHash: hashOperation(input),
+        inputHash: preclaimInputHash
+      }
+    }
+  }), { recordIds: [8] })
+
+  assert.equal(calls.claim, 0)
+  assert.equal(calls.write, 1)
+  assert.deepEqual(calls.succeed, [{
+    userId: 7,
+    operationId: 'persisted-operation',
+    inputHash: preclaimInputHash,
+    result: { recordIds: [8] }
+  }])
+})
+
+test('record tool never trusts forged or input-mismatched preclaims', async t => {
+  const input = {
+    amount: 25,
+    type: 'expense',
+    category: '交通',
+    currency: 'CNY'
+  }
+  const validInputHash = hashOperation({
+    operationType: 'record_transaction',
+    input
+  })
+  for (const [name, preclaim] of [
+    ['wrong user', {
+      userId: 8,
+      operationId: 'persisted-operation',
+      operationType: 'record_transaction',
+      argsHash: hashOperation(input),
+      inputHash: validInputHash
+    }],
+    ['wrong operation', {
+      userId: 7,
+      operationId: 'different-operation',
+      operationType: 'record_transaction',
+      argsHash: hashOperation(input),
+      inputHash: validInputHash
+    }],
+    ['wrong type', {
+      userId: 7,
+      operationId: 'persisted-operation',
+      operationType: 'update_transaction',
+      argsHash: hashOperation(input),
+      inputHash: validInputHash
+    }],
+    ['wrong args hash', {
+      userId: 7,
+      operationId: 'persisted-operation',
+      operationType: 'record_transaction',
+      argsHash: hashOperation({ ...input, amount: 99 }),
+      inputHash: validInputHash
+    }],
+    ['wrong input hash', {
+      userId: 7,
+      operationId: 'persisted-operation',
+      operationType: 'record_transaction',
+      argsHash: hashOperation(input),
+      inputHash: 'a'.repeat(64)
+    }]
+  ]) {
+    await t.test(name, async () => {
+      const claimCalls = []
+      let writes = 0
+      const tools = toolsByName({
+        runtime: {
+          userId: 7,
+          requestId: 'request-1',
+          operationId: 'fallback-operation'
+        },
+        queryFinanceSummary: async () => ({}),
+        datasetStore: {},
+        executeCalculation: async () => ({}),
+        checkBudget: async () => ({}),
+        recordFromPlannerTask: async () => {
+          writes += 1
+        },
+        operationStore: {
+          async claim(value) {
+            claimCalls.push(value)
+            return { status: 'in_progress' }
+          }
+        }
+      })
+
+      assert.deepEqual(await tools.record_transaction.invoke(input, {
+        context: {
+          userId: 7,
+          operationId: 'persisted-operation',
+          operationPreclaim: preclaim
+        }
+      }), { status: 'in_progress' })
+      assert.deepEqual(claimCalls, [{
+        userId: 7,
+        operationId: 'fallback-operation',
+        operationType: 'record_transaction',
+        input
+      }])
+      assert.equal(writes, 0)
+    })
+  }
 })
 
 test('domain tool schemas never expose trusted runtime or raw calculation data', () => {

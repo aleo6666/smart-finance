@@ -5,7 +5,10 @@ import { Command, MemorySaver } from '@langchain/langgraph'
 import { tool } from 'langchain'
 import { z } from 'zod'
 import { createAgentGraph } from '../../src/agent/graph.js'
-import { hashOperation } from '../../src/agent/stores/operationStore.js'
+import {
+  createOperationStore,
+  hashOperation
+} from '../../src/agent/stores/operationStore.js'
 
 const runtime = Object.freeze({
   userId: 7,
@@ -28,10 +31,10 @@ function state(content = '请记账') {
   }
 }
 
-function graphConfig(threadId) {
+function graphConfig(threadId, context = runtime) {
   return {
     configurable: { thread_id: threadId },
-    context: runtime,
+    context,
     recursionLimit: 30
   }
 }
@@ -43,12 +46,20 @@ function toolCall(name, args, id = `${name}-call`) {
   })
 }
 
+function toolCalls(calls) {
+  return new AIMessage({
+    content: '',
+    tool_calls: calls.map(call => ({ ...call, type: 'tool_call' }))
+  })
+}
+
 function queuedModel(outputs, calls) {
   return {
     bindTools() {
       return {
-        async invoke() {
+        async invoke(messages) {
           calls.model += 1
+          calls.modelMessages.push(messages)
           return outputs.shift()
         }
       }
@@ -57,9 +68,10 @@ function queuedModel(outputs, calls) {
 }
 
 function createWriteTool(name, calls, schema) {
-  return tool(async input => {
+  return tool(async (input, toolRuntime) => {
     calls.write += 1
     calls.inputs.push(structuredClone(input))
+    calls.runtimeOperationIds.push(toolRuntime.context?.operationId)
     return { status: 'ok', toolName: name }
   }, {
     name,
@@ -73,9 +85,16 @@ function createFixture({
   tools,
   now = () => 1_000,
   amountThreshold = 10_000,
-  confirmationTtlSeconds = 30
+  confirmationTtlSeconds = 30,
+  operationStore = createOperationStore(createFakeOperationDb())
 }) {
-  const calls = { model: 0, write: 0, inputs: [] }
+  const calls = {
+    model: 0,
+    modelMessages: [],
+    write: 0,
+    inputs: [],
+    runtimeOperationIds: []
+  }
   const graph = createAgentGraph({
     model: queuedModel([...outputs], calls),
     tools: tools(calls),
@@ -87,9 +106,48 @@ function createFixture({
         confirmationTtlSeconds
       }
     },
-    confirmationNow: now
+    confirmationNow: now,
+    operationStore
   })
   return { graph, calls }
+}
+
+function createFakeOperationDb() {
+  const rows = []
+  return table => {
+    assert.equal(table, 'agent_operations')
+    let criteria = {}
+    return {
+      where(value) {
+        criteria = { ...criteria, ...value }
+        return this
+      },
+      async first() {
+        return structuredClone(rows.find(row =>
+          Object.entries(criteria).every(([key, value]) => row[key] === value)
+        ))
+      },
+      async insert(row) {
+        if (rows.some(item =>
+          item.user_id === row.user_id && item.operation_id === row.operation_id
+        )) {
+          throw Object.assign(new Error('duplicate'), { code: 'ER_DUP_ENTRY' })
+        }
+        rows.push(structuredClone(row))
+        return [rows.length]
+      },
+      async update(changes) {
+        let count = 0
+        for (const row of rows) {
+          if (Object.entries(criteria).every(([key, value]) => row[key] === value)) {
+            Object.assign(row, structuredClone(changes))
+            count += 1
+          }
+        }
+        return count
+      }
+    }
+  }
 }
 
 const recordSchema = z.object({
@@ -221,7 +279,13 @@ test('low-value transaction executes without interrupting', async () => {
 
 test('rejected confirmation finalizes without executing the write', async () => {
   const finalized = []
-  const calls = { model: 0, write: 0, inputs: [] }
+  const calls = {
+    model: 0,
+    modelMessages: [],
+    write: 0,
+    inputs: [],
+    runtimeOperationIds: []
+  }
   const graph = createAgentGraph({
     model: queuedModel([
       toolCall('record_transaction', { amount: 20_000, category: '餐饮' })
@@ -318,4 +382,180 @@ test('approved write can continue a mixed task with domain analysis tools', asyn
     count: 1,
     scope: { month: '2026-07' }
   }])
+})
+
+test('pending confirmation rejects invalid operation ids before interrupting', async () => {
+  const invalidRuntime = {
+    ...runtime,
+    operationId: 'invalid operation id'
+  }
+  const { graph, calls } = createFixture({
+    tools: fixtureCalls => [
+      createWriteTool('record_transaction', fixtureCalls, recordSchema)
+    ],
+    outputs: [
+      toolCall('record_transaction', { amount: 20_000, category: '餐饮' })
+    ]
+  })
+
+  const result = await graph.invoke(
+    state(),
+    graphConfig('confirmation-invalid-operation', invalidRuntime)
+  )
+
+  assert.equal(result.__interrupt__, undefined)
+  assert.equal(calls.write, 0)
+  assert.deepEqual(result.response.errorCodes, ['CONFIRMATION_STATE_INVALID'])
+})
+
+test('resume rejects changed persisted arguments and their stale hash', async () => {
+  const { graph, calls } = createFixture({
+    tools: fixtureCalls => [
+      createWriteTool('record_transaction', fixtureCalls, recordSchema)
+    ],
+    outputs: [
+      toolCall('record_transaction', { amount: 20_000, category: '餐饮' })
+    ]
+  })
+  const config = graphConfig('confirmation-invalid-hash')
+  const interrupted = await graph.invoke(state(), config)
+  await graph.updateState(config, {
+    pendingConfirmation: {
+      ...interrupted.pendingConfirmation,
+      args: {
+        ...interrupted.pendingConfirmation.args,
+        amount: 99_000
+      }
+    }
+  })
+
+  const result = await graph.invoke(
+    new Command({ resume: { approved: true } }),
+    config
+  )
+
+  assert.equal(calls.write, 0)
+  assert.deepEqual(result.response.errorCodes, ['CONFIRMATION_STATE_INVALID'])
+})
+
+test('resume executes with the persisted operation id instead of the new request id', async () => {
+  const { graph, calls } = createFixture({
+    tools: fixtureCalls => [
+      createWriteTool('record_transaction', fixtureCalls, recordSchema)
+    ],
+    outputs: [
+      toolCall('record_transaction', { amount: 20_000, category: '餐饮' })
+    ]
+  })
+  const initialConfig = graphConfig('confirmation-operation-binding')
+  await graph.invoke(state(), initialConfig)
+
+  await graph.invoke(
+    new Command({ resume: { approved: true } }),
+    graphConfig('confirmation-operation-binding', {
+      ...runtime,
+      operationId: 'resume-request-operation'
+    })
+  )
+
+  assert.deepEqual(calls.runtimeOperationIds, [runtime.operationId])
+})
+
+test('concurrent duplicate resumes atomically claim one persisted write', async () => {
+  const operationStore = createOperationStore(createFakeOperationDb())
+  const { graph, calls } = createFixture({
+    operationStore,
+    tools: fixtureCalls => [
+      tool(async input => {
+        fixtureCalls.write += 1
+        fixtureCalls.inputs.push(structuredClone(input))
+        await new Promise(resolve => setTimeout(resolve, 25))
+        return { status: 'ok' }
+      }, {
+        name: 'record_transaction',
+        description: 'concurrent write test tool',
+        schema: recordSchema
+      })
+    ],
+    outputs: [
+      toolCall('record_transaction', { amount: 20_000, category: '餐饮' })
+    ]
+  })
+  const config = graphConfig('confirmation-concurrent')
+  await graph.invoke(state(), config)
+
+  await Promise.all([
+    graph.invoke(new Command({ resume: { approved: true } }), config),
+    graph.invoke(new Command({ resume: { approved: true } }), config)
+  ])
+
+  assert.equal(calls.model, 1)
+  assert.equal(calls.write, 1)
+  assert.deepEqual(calls.inputs, [{
+    amount: 20_000,
+    type: 'expense',
+    category: '餐饮',
+    currency: 'CNY'
+  }])
+})
+
+test('batched write and query resolves every call before the model retries the query', async () => {
+  const queryCalls = []
+  const { graph, calls } = createFixture({
+    tools: fixtureCalls => [
+      createWriteTool('record_transaction', fixtureCalls, recordSchema),
+      tool(async input => {
+        queryCalls.push(structuredClone(input))
+        return { datasetRef: 'ds_batch-query', count: 1, scope: input }
+      }, {
+        name: 'query_transactions',
+        description: 'query after a batched write',
+        schema: z.object({ month: z.string() })
+      })
+    ],
+    outputs: [
+      toolCalls([
+        {
+          id: 'batch-write',
+          name: 'record_transaction',
+          args: { amount: 20_000, category: '餐饮' }
+        },
+        {
+          id: 'batch-query-skipped',
+          name: 'query_transactions',
+          args: { month: '2026-07' }
+        }
+      ]),
+      toolCall(
+        'query_transactions',
+        { month: '2026-07' },
+        'batch-query-retry'
+      ),
+      new AIMessage('批量任务完成')
+    ]
+  })
+  const config = graphConfig('confirmation-batched-calls')
+  await graph.invoke(state('记账后分析本月支出'), config)
+
+  const result = await graph.invoke(
+    new Command({ resume: { approved: true } }),
+    config
+  )
+  const secondModelToolMessages = calls.modelMessages[1].filter(
+    message => message._getType() === 'tool'
+  )
+
+  assert.equal(calls.write, 1)
+  assert.deepEqual(queryCalls, [{ month: '2026-07' }])
+  assert.deepEqual(
+    secondModelToolMessages.map(message => message.tool_call_id).sort(),
+    ['batch-query-skipped', 'batch-write']
+  )
+  assert.match(
+    secondModelToolMessages.find(
+      message => message.tool_call_id === 'batch-query-skipped'
+    ).content,
+    /TOOL_CALL_RETRY_REQUIRED/
+  )
+  assert.equal(result.response.message, '批量任务完成')
 })

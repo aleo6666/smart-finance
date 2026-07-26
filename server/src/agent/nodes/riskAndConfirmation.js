@@ -13,6 +13,9 @@ const WRITE_TOOLS = new Set([
   ...SENSITIVE_WRITE_TOOLS
 ])
 
+const OPERATION_ID_PATTERN = /^[A-Za-z0-9._:-]{1,64}$/
+const HASH_PATTERN = /^[a-f0-9]{64}$/
+
 function objectMap(value) {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value
@@ -45,6 +48,25 @@ function fatalError(code) {
   }
 }
 
+export function isValidPendingConfirmation(pending) {
+  if (
+    !objectMap(pending) ||
+    !WRITE_TOOLS.has(pending.toolName) ||
+    !objectMap(pending.args) ||
+    !OPERATION_ID_PATTERN.test(pending.operationId) ||
+    !HASH_PATTERN.test(pending.argsHash) ||
+    !Number.isFinite(pending.expiresAt) ||
+    !objectMap(pending.safeSummary)
+  ) {
+    return false
+  }
+  try {
+    return hashOperation(pending.args) === pending.argsHash
+  } catch {
+    return false
+  }
+}
+
 export function hasWriteToolCall(state) {
   return lastToolCalls(state).some(call => WRITE_TOOLS.has(call?.name))
 }
@@ -61,6 +83,9 @@ export function createPendingConfirmationNode({
     if (!call) return {}
     const parsed = await byName.get(call.name).schema.parseAsync(call.args)
     const operationId = graphConfig.context?.operationId
+    if (!OPERATION_ID_PATTERN.test(operationId)) {
+      return { errors: [fatalError('CONFIRMATION_STATE_INVALID')] }
+    }
     const expiresAt = Number(now()) + ttlMs
     return {
       pendingConfirmation: {
@@ -81,10 +106,17 @@ export function createRiskNode({
 }) {
   return async state => {
     const pending = objectMap(state.pendingConfirmation)
-    if (!pending) {
+    if (!isValidPendingConfirmation(pending)) {
       return { errors: [fatalError('CONFIRMATION_STATE_INVALID')] }
     }
-    if (pending.executed === true) return {}
+    if (pending.executed === true) {
+      return {
+        pendingConfirmation: {
+          ...pending,
+          approved: false
+        }
+      }
+    }
 
     const highAmount = pending.toolName === 'record_transaction' &&
       Number(pending.args?.amount) >= amountThreshold
