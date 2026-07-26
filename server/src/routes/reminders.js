@@ -12,11 +12,11 @@ function limitFromQuery(value, fallback, max) {
 const currentMonth = new Date().toISOString().slice(0, 7)
 
 /** 回溯检查：如果某预算已超阈值但缺少 pending reminder，补生成 */
-async function ensureBudgetReminders(userId) {
-  const budgets = await db('budgets').where('user_id', userId)
+async function ensureBudgetReminders(userId, dbClient) {
+  const budgets = await dbClient('budgets').where('user_id', userId)
 
   for (const budget of budgets) {
-    const row = await db('records')
+    const row = await dbClient('records')
       .where({ user_id: userId, type: 'expense' })
       .whereRaw("DATE_FORMAT(date, '%Y-%m') = ?", [currentMonth])
       .where(builder => {
@@ -35,7 +35,7 @@ async function ensureBudgetReminders(userId) {
 
     // 已有 pending reminder 则跳过
     const category = budget.category || 'total'
-    const existing = await db('reminders')
+    const existing = await dbClient('reminders')
       .where({ user_id: userId, type: 'budget_alert', status: 'pending' })
       .where('message', 'like', `%${currentMonth}%`)
       .where('message', 'like', `%${level}%`)
@@ -43,7 +43,7 @@ async function ensureBudgetReminders(userId) {
       .first()
     if (existing) continue
 
-    await db('reminders').insert({
+    await dbClient('reminders').insert({
       device_id: `user-${userId}`,
       user_id: userId,
       type: 'budget_alert',
@@ -67,7 +67,7 @@ export function createRemindersRouter({ dbClient = db } = {}) {
   router.use(authMiddleware)
 
   router.get('/', async (req, res) => {
-    await ensureBudgetReminders(req.userId)
+    await ensureBudgetReminders(req.userId, dbClient)
     const limit = limitFromQuery(req.query.limit, 20, 50)
     const reminders = await dbClient('reminders')
       .where({ user_id: req.userId, status: 'pending' })
@@ -77,7 +77,7 @@ export function createRemindersRouter({ dbClient = db } = {}) {
   })
 
   router.get('/highlights', async (req, res) => {
-    await ensureBudgetReminders(req.userId)
+    await ensureBudgetReminders(req.userId, dbClient)
     const limit = limitFromQuery(req.query.limit, 3, 5)
     const reminders = await dbClient('reminders')
       .where({ user_id: req.userId, status: 'pending' })
@@ -88,7 +88,7 @@ export function createRemindersRouter({ dbClient = db } = {}) {
   })
 
   router.get('/count', async (req, res) => {
-    await ensureBudgetReminders(req.userId)
+    await ensureBudgetReminders(req.userId, dbClient)
     const row = await dbClient('reminders').where({ user_id: req.userId, status: 'pending' }).count({ count: '*' }).first()
     res.json({ success: true, data: Number(row?.count || 0) })
   })

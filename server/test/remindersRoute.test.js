@@ -18,8 +18,9 @@ function listen(app) {
 function createQuery(rows) {
   const state = { table: '', where: {}, limit: null, updates: null }
   const query = {
-    where(input) {
-      Object.assign(state.where, input)
+    where(input, value) {
+      if (typeof input === 'string') state.where[input] = value
+      else Object.assign(state.where, input)
       return query
     },
     orderBy() { return query },
@@ -55,8 +56,9 @@ function createQuery(rows) {
   return query
 }
 
-function createFakeDb(rows, states = []) {
+function createFakeDb(reminderRows, states = []) {
   function db(table) {
+    const rows = table === 'reminders' ? reminderRows : []
     const query = createQuery(rows)
     query.state.table = table
     states.push(query.state)
@@ -66,7 +68,8 @@ function createFakeDb(rows, states = []) {
   return db
 }
 
-test('GET /api/reminders returns formatted display data', async () => {
+test('GET /api/reminders uses the injected database for backfill and display data', async () => {
+  const states = []
   const rows = [{
     id: 1,
     user_id: 7,
@@ -78,7 +81,7 @@ test('GET /api/reminders returns formatted display data', async () => {
   }]
   const app = express()
   app.use(express.json())
-  app.use('/api/reminders', createRemindersRouter({ dbClient: createFakeDb(rows) }))
+  app.use('/api/reminders', createRemindersRouter({ dbClient: createFakeDb(rows, states) }))
 
   const { server, url } = await listen(app)
   try {
@@ -89,6 +92,7 @@ test('GET /api/reminders returns formatted display data', async () => {
     assert.equal(response.status, 200)
     assert.equal(json.data[0].display.kind, 'budget')
     assert.equal(json.data[0].display.summary, '餐饮预算已使用 86%')
+    assert.deepEqual(states.map(state => state.table), ['budgets', 'reminders'])
   } finally {
     server.close()
   }

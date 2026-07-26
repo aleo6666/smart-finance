@@ -127,7 +127,7 @@ test('queryFinanceSummary totals all matching rows beyond display limit', async 
 
 test('buildFinanceQueryReply creates summary recent largest and empty replies', () => {
   const summary = {
-    hints: { month: '2026-07', category: '餐饮', type: 'expense', queryKind: 'summary' },
+    hints: { month: '本月', category: '餐饮', type: 'expense', queryKind: 'summary' },
     count: 2,
     total: 50,
     average: 25,
@@ -135,7 +135,7 @@ test('buildFinanceQueryReply creates summary recent largest and empty replies', 
     records: []
   }
 
-  assert.match(buildFinanceQueryReply(summary), /2026-07 餐饮支出共 50\.00 元/)
+  assert.match(buildFinanceQueryReply(summary), /本月 餐饮支出共 50\.00 元/)
   assert.match(buildFinanceQueryReply({ ...summary, hints: { ...summary.hints, queryKind: 'largest' } }), /最大一笔/)
   assert.match(buildFinanceQueryReply({
     ...summary,

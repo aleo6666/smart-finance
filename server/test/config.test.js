@@ -1,18 +1,69 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { loadConfig } from '../src/config.js'
 
-test('loadConfig returns MySQL Redis and vector defaults', () => {
-  const config = loadConfig({})
+const previousNodeEnv = process.env.NODE_ENV
+process.env.NODE_ENV = 'test'
+const { loadConfig } = await import('../src/config.js?config-test')
+if (previousNodeEnv == null) delete process.env.NODE_ENV
+else process.env.NODE_ENV = previousNodeEnv
 
-  assert.equal(config.db.host, 'localhost')
-  assert.equal(config.db.port, 3306)
-  assert.equal(config.db.name, 'smart_finance')
-  assert.equal(config.redis.host, 'localhost')
-  assert.equal(config.redis.port, 6379)
-  assert.equal(config.vector.url, 'http://localhost:6333')
-  assert.equal(config.vector.collection, 'finance_records')
-  assert.equal(config.ai.embeddingModel, 'text-embedding-3-small')
+test('loadConfig returns the complete default config', () => {
+  assert.deepEqual(loadConfig({}), {
+    server: {
+      nodeEnv: 'development',
+      port: 3000,
+      uploadsDir: './uploads'
+    },
+    db: {
+      host: 'localhost',
+      port: 3306,
+      name: 'smart_finance',
+      user: 'finance',
+      password: 'change-me-in-production'
+    },
+    redis: {
+      host: 'localhost',
+      port: 6379,
+      password: ''
+    },
+    vector: {
+      url: 'http://localhost:6333',
+      apiKey: '',
+      collection: 'finance_records'
+    },
+    ai: {
+      openaiApiKey: '',
+      embeddingModel: 'text-embedding-3-small',
+      zhipuApiKey: '',
+      anthropicApiKey: ''
+    },
+    lmStudio: {
+      baseUrl: 'http://127.0.0.1:1234/v1',
+      chatModel: 'qwen3.6-35b-a3b',
+      embeddingModel: 'text-embedding-nomic-embed-text-v1.5',
+      apiKey: '',
+      embeddingBaseUrl: '',
+      embeddingApiKey: '',
+      embeddingTimeoutMs: 10000,
+      chatTimeoutMs: 120000,
+      listModelsTimeoutMs: 5000
+    },
+    rag: {
+      enabled: true,
+      collection: 'finance_records_nomic_v1',
+      topK: 5,
+      maxContextChars: 6000
+    },
+    auth: {
+      jwtSecret: undefined
+    },
+    wechat: {
+      miniAppId: '',
+      miniSecret: '',
+      mpAppId: '',
+      mpSecret: ''
+    }
+  })
 })
 
 test('loadConfig converts numeric environment values', () => {
@@ -25,24 +76,6 @@ test('loadConfig converts numeric environment values', () => {
   assert.equal(config.server.port, 3100)
   assert.equal(config.db.port, 3307)
   assert.equal(config.redis.port, 6380)
-})
-
-test('loadConfig returns local LM Studio and RAG defaults', () => {
-  const loaded = loadConfig({})
-  assert.deepEqual(loaded.lmStudio, {
-    baseUrl: 'http://127.0.0.1:1234/v1',
-    chatModel: 'qwen3.6-35b-a3b',
-    embeddingModel: 'text-embedding-nomic-embed-text-v1.5',
-    embeddingTimeoutMs: 10000,
-    chatTimeoutMs: 120000,
-    listModelsTimeoutMs: 5000
-  })
-  assert.deepEqual(loaded.rag, {
-    enabled: true,
-    collection: 'finance_records_nomic_v1',
-    topK: 5,
-    maxContextChars: 6000
-  })
 })
 
 test('loadConfig reads LM Studio and bounded RAG overrides', () => {
