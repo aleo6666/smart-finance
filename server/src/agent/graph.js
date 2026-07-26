@@ -299,6 +299,27 @@ function createFinalizeNode() {
   }
 }
 
+function terminateConfirmation(state) {
+  const expired = (state.errors ?? []).some(
+    item => item?.code === 'CONFIRMATION_EXPIRED'
+  )
+  const code = expired
+    ? 'CONFIRMATION_EXPIRED'
+    : 'CONFIRMATION_REJECTED'
+  const message = expired
+    ? '确认已过期，未执行。'
+    : '已取消，未执行。'
+  return {
+    messages: failedToolMessages(toolCallsFromLastMessage(state), code),
+    response: {
+      success: false,
+      intent: state.intentType,
+      message,
+      errorCodes: [code]
+    }
+  }
+}
+
 export function createAgentGraph({
   model,
   tools = [],
@@ -596,12 +617,15 @@ export function createAgentGraph({
       : 'domain_tools'
   }
   const routeRiskAndConfirmation = state => {
-    if ((state.errors ?? []).some(item => item?.fatal === true)) {
+    if ((state.errors ?? []).some(
+      item => item?.fatal === true &&
+        item?.code !== 'CONFIRMATION_EXPIRED'
+    )) {
       return 'finalize_response'
     }
     return state.pendingConfirmation?.approved === true
       ? 'confirmed_write_tools'
-      : 'finalize_response'
+      : 'terminate_confirmation'
   }
   const routeDomainTools = state =>
     (state.errors ?? []).some(item => item?.fatal === true)
@@ -623,6 +647,7 @@ export function createAgentGraph({
     .addNode('call_model', callModel)
     .addNode('validate_tool_call', validateToolCall)
     .addNode('risk_and_confirmation', riskAndConfirmation)
+    .addNode('terminate_confirmation', terminateConfirmation)
     .addNode('confirmed_write_tools', confirmedWriteTools)
     .addNode('domain_tools', domainTools)
     .addNode('finalize_response', finalizeResponse)
@@ -646,7 +671,11 @@ export function createAgentGraph({
     .addConditionalEdges(
       'risk_and_confirmation',
       routeRiskAndConfirmation,
-      ['confirmed_write_tools', 'finalize_response']
+      [
+        'confirmed_write_tools',
+        'terminate_confirmation',
+        'finalize_response'
+      ]
     )
     .addConditionalEdges('confirmed_write_tools', routeConfirmedWrite, [
       'call_model',
@@ -656,6 +685,7 @@ export function createAgentGraph({
       'call_model',
       'finalize_response'
     ])
+    .addEdge('terminate_confirmation', 'post_turn_memory')
     .addEdge('finalize_response', 'post_turn_memory')
     .addEdge('post_turn_memory', 'observe')
     .addEdge('observe', END)

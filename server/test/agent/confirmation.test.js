@@ -279,73 +279,134 @@ test('low-value transaction executes without interrupting', async () => {
   })
 })
 
-test('rejected confirmation finalizes without executing the write', async () => {
-  const finalized = []
-  const calls = {
-    model: 0,
-    modelMessages: [],
-    write: 0,
-    inputs: [],
-    runtimeOperationIds: []
-  }
-  const graph = createAgentGraph({
-    model: queuedModel([
-      toolCall('record_transaction', { amount: 20_000, category: '餐饮' })
-    ], calls),
-    tools: [createWriteTool('record_transaction', calls, recordSchema)],
-    checkpointer: new MemorySaver(),
-    config: {
-      agent: {
-        maxToolCalls: 8,
-        amountThreshold: 10_000,
-        confirmationTtlSeconds: 30
-      }
-    },
-    confirmationNow: () => 1_000,
-    finalizeResponse: async current => {
-      finalized.push(current.pendingConfirmation)
-      return { response: { success: false, message: 'cancelled' } }
-    }
+test('rejected batch closes every tool call without executing tools', async () => {
+  const queryCalls = []
+  const { graph, calls } = createFixture({
+    tools: fixtureCalls => [
+      createWriteTool('record_transaction', fixtureCalls, recordSchema),
+      tool(async input => {
+        queryCalls.push(structuredClone(input))
+        return { datasetRef: 'should-not-run' }
+      }, {
+        name: 'query_transactions',
+        description: 'query transactions',
+        schema: z.object({ month: z.string() })
+      })
+    ],
+    outputs: [
+      toolCalls([
+        {
+          id: 'rejected-write',
+          name: 'record_transaction',
+          args: { amount: 20_000, category: '餐饮' }
+        },
+        {
+          id: 'rejected-query',
+          name: 'query_transactions',
+          args: { month: '2026-07' }
+        }
+      ]),
+      new AIMessage('下一轮正常')
+    ]
   })
   const config = graphConfig('confirmation-rejected')
-  await graph.invoke(state(), config)
+  await graph.invoke(state('更新并分析'), config)
 
   const result = await graph.invoke(
     new Command({ resume: { approved: false } }),
     config
   )
+  const terminalMessages = result.messages.filter(message =>
+    message._getType() === 'tool' &&
+    ['rejected-write', 'rejected-query'].includes(message.tool_call_id)
+  )
 
   assert.equal(calls.model, 1)
   assert.equal(calls.write, 0)
-  assert.equal(finalized.length, 1)
-  assert.equal(result.response.message, 'cancelled')
+  assert.equal(queryCalls.length, 0)
+  assert.equal(result.response.success, false)
+  assert.match(result.response.message, /已取消，未执行/)
+  assert.deepEqual(result.response.errorCodes, ['CONFIRMATION_REJECTED'])
+  assert.deepEqual(
+    terminalMessages.map(message => message.tool_call_id).sort(),
+    ['rejected-query', 'rejected-write']
+  )
+  for (const message of terminalMessages) {
+    assert.match(message.content, /CONFIRMATION_REJECTED/)
+  }
+
+  const nextTurn = await graph.invoke(state('继续'), config)
+
+  assert.equal(calls.model, 2)
+  assert.equal(nextTurn.response.success, true)
+  assert.equal(nextTurn.response.message, '下一轮正常')
 })
 
-test('expired confirmation returns CONFIRMATION_EXPIRED without executing the write', async () => {
+test('expired batch closes every tool call without executing tools', async () => {
   let currentTime = 1_000
+  const queryCalls = []
   const { graph, calls } = createFixture({
     now: () => currentTime,
     confirmationTtlSeconds: 1,
     tools: fixtureCalls => [
-      createWriteTool('record_transaction', fixtureCalls, recordSchema)
+      createWriteTool('record_transaction', fixtureCalls, recordSchema),
+      tool(async input => {
+        queryCalls.push(structuredClone(input))
+        return { datasetRef: 'should-not-run' }
+      }, {
+        name: 'query_transactions',
+        description: 'query transactions',
+        schema: z.object({ month: z.string() })
+      })
     ],
     outputs: [
-      toolCall('record_transaction', { amount: 20_000, category: '餐饮' })
+      toolCalls([
+        {
+          id: 'expired-write',
+          name: 'record_transaction',
+          args: { amount: 20_000, category: '餐饮' }
+        },
+        {
+          id: 'expired-query',
+          name: 'query_transactions',
+          args: { month: '2026-07' }
+        }
+      ]),
+      new AIMessage('过期后的下一轮正常')
     ]
   })
   const config = graphConfig('confirmation-expired')
-  const interrupted = await graph.invoke(state(), config)
+  const interrupted = await graph.invoke(state('更新并分析'), config)
   currentTime = interrupted.pendingConfirmation.expiresAt + 1
 
   const result = await graph.invoke(
     new Command({ resume: { approved: true } }),
     config
   )
+  const terminalMessages = result.messages.filter(message =>
+    message._getType() === 'tool' &&
+    ['expired-write', 'expired-query'].includes(message.tool_call_id)
+  )
 
   assert.equal(calls.model, 1)
   assert.equal(calls.write, 0)
+  assert.equal(queryCalls.length, 0)
   assert.equal(result.response.success, false)
+  assert.match(result.response.message, /确认已过期，未执行/)
   assert.deepEqual(result.response.errorCodes, ['CONFIRMATION_EXPIRED'])
+  assert.deepEqual(
+    terminalMessages.map(message => message.tool_call_id).sort(),
+    ['expired-query', 'expired-write']
+  )
+  for (const message of terminalMessages) {
+    assert.match(message.content, /CONFIRMATION_EXPIRED/)
+  }
+
+  const nextTurn = await graph.invoke(state('继续'), config)
+
+  assert.equal(calls.model, 2)
+  assert.equal(nextTurn.response.success, true)
+  assert.equal(nextTurn.response.message, '过期后的下一轮正常')
 })
 
 test('approved write can continue a mixed task with domain analysis tools', async () => {
