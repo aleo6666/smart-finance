@@ -212,6 +212,7 @@ test('high-value transaction persists normalized arguments and resumes exactly o
   await graph.invoke(new Command({ resume: { approved: true } }), config)
 
   assert.equal(approved.response.success, true)
+  assert.equal(approved.response.message, '记账成功。')
   assert.equal(calls.model, 1)
   assert.equal(calls.write, 1)
   assert.deepEqual(calls.inputs, [normalizedArgs])
@@ -267,6 +268,7 @@ test('low-value transaction executes without interrupting', async () => {
 
   assert.equal(result.__interrupt__, undefined)
   assert.equal(result.response.success, true)
+  assert.equal(result.response.message, '记账成功。')
   assert.equal(calls.model, 1)
   assert.equal(calls.write, 1)
   assert.deepEqual(calls.inputs[0], {
@@ -558,4 +560,178 @@ test('batched write and query resolves every call before the model retries the q
     /TOOL_CALL_RETRY_REQUIRED/
   )
   assert.equal(result.response.message, '批量任务完成')
+})
+
+test('a thrown sensitive write fails the operation and is never replayed as success', async () => {
+  const baseStore = createOperationStore(createFakeOperationDb())
+  const storeCalls = { succeed: 0, fail: 0 }
+  const operationStore = {
+    claim: input => baseStore.claim(input),
+    async succeed(input) {
+      storeCalls.succeed += 1
+      return baseStore.succeed(input)
+    },
+    async fail(input) {
+      storeCalls.fail += 1
+      return baseStore.fail(input)
+    }
+  }
+  let writes = 0
+  const createFailingTools = () => [
+    tool(async () => {
+      writes += 1
+      throw new Error('database password=secret')
+    }, {
+      name: 'update_transaction',
+      description: 'failing sensitive write',
+      schema: z.object({ id: z.number().int().positive() })
+    })
+  ]
+
+  const first = createFixture({
+    operationStore,
+    tools: createFailingTools,
+    outputs: [toolCall('update_transaction', { id: 9 })]
+  })
+  const firstConfig = graphConfig('confirmation-failed-write')
+  await first.graph.invoke(state('更新交易'), firstConfig)
+  const firstResult = await first.graph.invoke(
+    new Command({ resume: { approved: true } }),
+    firstConfig
+  )
+
+  const retry = createFixture({
+    operationStore,
+    tools: createFailingTools,
+    outputs: [toolCall('update_transaction', { id: 9 })]
+  })
+  const retryConfig = graphConfig('confirmation-failed-write-retry')
+  await retry.graph.invoke(state('再次更新交易'), retryConfig)
+  const retryResult = await retry.graph.invoke(
+    new Command({ resume: { approved: true } }),
+    retryConfig
+  )
+
+  assert.equal(writes, 1)
+  assert.equal(storeCalls.succeed, 0)
+  assert.equal(storeCalls.fail, 1)
+  assert.equal(firstResult.response.success, false)
+  assert.equal(retryResult.response.success, false)
+  assert.deepEqual(firstResult.response.errorCodes, ['TOOL_EXECUTION_FAILED'])
+  assert.doesNotMatch(JSON.stringify(firstResult), /password|secret/)
+})
+
+test('confirmation failures close every batched tool call with safe messages', async t => {
+  const input = { id: 9 }
+  const inputHash = hashOperation({
+    operationType: 'update_transaction',
+    input
+  })
+  for (const item of [
+    {
+      name: 'claim persistence',
+      expectedCode: 'TOOL_EXECUTION_FAILED',
+      claim: async () => { throw new Error('claim database secret') },
+      toolThrows: false,
+      succeed: async () => assert.fail('succeed must not run'),
+      fail: async () => assert.fail('fail must not run')
+    },
+    {
+      name: 'claim hash mismatch',
+      expectedCode: 'CONFIRMATION_STATE_INVALID',
+      claim: async () => ({
+        status: 'owner',
+        inputHash: 'a'.repeat(64)
+      }),
+      toolThrows: false,
+      succeed: async () => assert.fail('succeed must not run'),
+      fail: async () => assert.fail('fail must not run')
+    },
+    {
+      name: 'succeed transition',
+      expectedCode: 'TOOL_EXECUTION_FAILED',
+      claim: async () => ({ status: 'owner', inputHash }),
+      toolThrows: false,
+      succeed: async () => { throw new Error('succeed database secret') },
+      fail: async () => {}
+    },
+    {
+      name: 'fail transition',
+      expectedCode: 'TOOL_EXECUTION_FAILED',
+      claim: async () => ({ status: 'owner', inputHash }),
+      toolThrows: true,
+      succeed: async () => assert.fail('succeed must not run'),
+      fail: async () => { throw new Error('fail database secret') }
+    }
+  ]) {
+    await t.test(item.name, async () => {
+      let failCalls = 0
+      const { graph } = createFixture({
+        operationStore: {
+          claim: item.claim,
+          succeed: item.succeed,
+          async fail(value) {
+            failCalls += 1
+            return item.fail(value)
+          }
+        },
+        tools: () => [
+          tool(async () => {
+            if (item.toolThrows) throw new Error('tool database secret')
+            return { status: 'ok' }
+          }, {
+            name: 'update_transaction',
+            description: 'sensitive write transition test',
+            schema: z.object({ id: z.number().int().positive() })
+          }),
+          tool(async () => ({ datasetRef: 'must-not-run' }), {
+            name: 'query_transactions',
+            description: 'batched query that must be safely resolved',
+            schema: z.object({ month: z.string() })
+          })
+        ],
+        outputs: [toolCalls([
+          {
+            id: `failure-write-${item.name}`,
+            name: 'update_transaction',
+            args: input
+          },
+          {
+            id: `failure-query-${item.name}`,
+            name: 'query_transactions',
+            args: { month: '2026-07' }
+          }
+        ])]
+      })
+      const config = graphConfig(`confirmation-${item.name.replace(' ', '-')}`)
+      await graph.invoke(state('更新并分析'), config)
+
+      const result = await graph.invoke(
+        new Command({ resume: { approved: true } }),
+        config
+      )
+      const failureMessages = result.messages.filter(
+        message => message._getType() === 'tool' &&
+          message.tool_call_id?.startsWith('failure-')
+      )
+
+      assert.equal(result.response.success, false)
+      assert.deepEqual(result.response.errorCodes, [item.expectedCode])
+      assert.deepEqual(
+        failureMessages.map(message => message.tool_call_id).sort(),
+        [
+          `failure-query-${item.name}`,
+          `failure-write-${item.name}`
+        ].sort()
+      )
+      assert.equal(
+        failureMessages.every(message =>
+          message.content.includes(item.expectedCode)
+        ),
+        true
+      )
+      assert.doesNotMatch(JSON.stringify(result), /database secret/)
+      if (item.name === 'fail transition') assert.equal(failCalls, 1)
+    })
+  }
 })

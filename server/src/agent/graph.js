@@ -214,24 +214,80 @@ function resolvedToolMessages(calls, executedMessages) {
   }))
 }
 
-function resultFromToolMessages(messages, toolCallId) {
+function failedToolMessages(calls, code) {
+  return calls.map(call => toolMessage({
+    id: call.id,
+    name: call.name,
+    value: {
+      status: 'error',
+      error: { code }
+    }
+  }))
+}
+
+const SUCCESS_TOOL_STATUSES = new Set([
+  'active',
+  'completed',
+  'deleted',
+  'ok',
+  'pending',
+  'success',
+  'updated'
+])
+
+function successfulToolResult(messages, toolCallId) {
   const message = messages.find(item => item.tool_call_id === toolCallId)
-  if (!message) return null
-  if (typeof message.content !== 'string') return message.content
-  try {
-    return JSON.parse(message.content)
-  } catch {
-    return null
+  if (!message || typeof message.content !== 'string') {
+    return { success: false }
   }
+  let result
+  try {
+    result = JSON.parse(message.content)
+  } catch {
+    return { success: false }
+  }
+  if (!result || typeof result !== 'object' || Array.isArray(result)) {
+    return { success: false }
+  }
+  const explicitSuccess =
+    result.success === true ||
+    SUCCESS_TOOL_STATUSES.has(result.status) ||
+    Array.isArray(result.recordIds)
+  return explicitSuccess &&
+    result.success !== false &&
+    result.status !== 'error' &&
+    !result.error
+    ? { success: true, result }
+    : { success: false }
+}
+
+function writeSuccessMessage(toolName) {
+  if (toolName === 'record_transaction') return '记账成功。'
+  if (toolName === 'delete_user_memory') return '删除成功。'
+  return '更新成功。'
+}
+
+function continuesAfterWrite(state) {
+  return String(state.intentType).split('+').some(
+    intent => POST_WRITE_ANALYSIS_INTENTS.has(intent)
+  )
+}
+
+function successfulWriteMessages(state, pending, sourceCalls, toolMessages) {
+  const resolved = resolvedToolMessages(sourceCalls, toolMessages)
+  return continuesAfterWrite(state)
+    ? resolved
+    : [...resolved, new AIMessage(writeSuccessMessage(pending.toolName))]
 }
 
 function createFinalizeNode() {
   return async state => {
     const fatalErrors = (state.errors ?? []).filter(item => item?.fatal === true)
     const lastAi = [...(state.messages ?? [])].reverse().find(isAIMessage)
+    const aiText = responseText(lastAi)
     const message = fatalErrors.length > 0
       ? '请求无法安全执行，请调整后重试。'
-      : responseText(lastAi) || '暂时无法生成回复，请稍后重试。'
+      : aiText || '暂时无法生成回复，请稍后重试。'
     return {
       response: {
         success: fatalErrors.length === 0,
@@ -348,6 +404,19 @@ export function createAgentGraph({
     const sourceCall = sourceCalls.find(
       call => call?.name === pending?.toolName
     )
+    const failConfirmedWrite = code => ({
+      messages: failedToolMessages(sourceCalls, code),
+      ...(isValidPendingConfirmation(pending)
+        ? {
+            pendingConfirmation: {
+              ...pending,
+              approved: false,
+              executed: true
+            }
+          }
+        : {}),
+      errors: [safeError(code, 'domain_tools')]
+    })
     if (
       !isValidPendingConfirmation(pending) ||
       pending.approved !== true ||
@@ -355,9 +424,7 @@ export function createAgentGraph({
       !operationStore ||
       typeof operationStore.claim !== 'function'
     ) {
-      return {
-        errors: [safeError('CONFIRMATION_STATE_INVALID', 'domain_tools')]
-      }
+      return failConfirmedWrite('CONFIRMATION_STATE_INVALID')
     }
 
     let claim
@@ -369,26 +436,32 @@ export function createAgentGraph({
         input: pending.args
       })
     } catch {
-      return {
-        errors: [safeError('TOOL_EXECUTION_FAILED', 'domain_tools')]
-      }
+      return failConfirmedWrite('TOOL_EXECUTION_FAILED')
     }
 
-    if (claim.status === 'succeeded' || claim.status === 'in_progress') {
-      const value = claim.status === 'succeeded'
-        ? claim.result
-        : { status: 'in_progress' }
+    if (claim.status === 'succeeded') {
+      const replay = successfulToolResult([toolMessage({
+        id: sourceCall.id,
+        name: pending.toolName,
+        value: claim.result
+      })], sourceCall.id)
+      if (!replay.success) {
+        return failConfirmedWrite('TOOL_EXECUTION_FAILED')
+      }
       return {
-        messages: resolvedToolMessages(sourceCalls, [toolMessage({
+        messages: successfulWriteMessages(state, pending, sourceCalls, [toolMessage({
           id: sourceCall.id,
           name: pending.toolName,
-          value
+          value: replay.result
         })]),
         pendingConfirmation: {
           ...pending,
           executed: true
         }
       }
+    }
+    if (claim.status === 'in_progress') {
+      return failConfirmedWrite('OPERATION_IN_PROGRESS')
     }
     const expectedInputHash = hashOperation({
       operationType: pending.toolName,
@@ -398,9 +471,7 @@ export function createAgentGraph({
       claim.status !== 'owner' ||
       claim.inputHash !== expectedInputHash
     ) {
-      return {
-        errors: [safeError('CONFIRMATION_STATE_INVALID', 'domain_tools')]
-      }
+      return failConfirmedWrite('CONFIRMATION_STATE_INVALID')
     }
 
     const claimedConfig = {
@@ -418,8 +489,9 @@ export function createAgentGraph({
         }
       }
     }
+    let output
     try {
-      const output = await toolNode.invoke({
+      output = await toolNode.invoke({
         ...state,
         messages: [new AIMessage({
           content: '',
@@ -431,35 +503,6 @@ export function createAgentGraph({
           }]
         })]
       }, claimedConfig)
-      const executedMessages = Array.isArray(output?.messages)
-        ? output.messages
-        : []
-      const toolHandlesClaim = toolsByName.get(pending.toolName)
-        ?.metadata?.handlesOperationPreclaim === true
-      if (!toolHandlesClaim) {
-        if (
-          typeof operationStore.succeed !== 'function' ||
-          typeof operationStore.fail !== 'function'
-        ) {
-          return {
-            errors: [safeError('CONFIRMATION_STATE_INVALID', 'domain_tools')]
-          }
-        }
-        await operationStore.succeed({
-          userId: state.userId,
-          operationId: pending.operationId,
-          inputHash: claim.inputHash,
-          result: resultFromToolMessages(executedMessages, sourceCall.id)
-        })
-      }
-      return {
-        ...output,
-        messages: resolvedToolMessages(sourceCalls, executedMessages),
-        pendingConfirmation: {
-          ...pending,
-          executed: true
-        }
-      }
     } catch {
       if (
         toolsByName.get(pending.toolName)
@@ -473,8 +516,65 @@ export function createAgentGraph({
           errorCode: 'TOOL_EXECUTION_FAILED'
         }).catch(() => {})
       }
-      return {
-        errors: [safeError('TOOL_EXECUTION_FAILED', 'domain_tools')]
+      return failConfirmedWrite('TOOL_EXECUTION_FAILED')
+    }
+
+    const executedMessages = Array.isArray(output?.messages)
+      ? output.messages
+      : []
+    const toolHandlesClaim = toolsByName.get(pending.toolName)
+      ?.metadata?.handlesOperationPreclaim === true
+    const outcome = successfulToolResult(executedMessages, sourceCall.id)
+    if (!outcome.success) {
+      if (
+        !toolHandlesClaim &&
+        typeof operationStore.fail === 'function'
+      ) {
+        await operationStore.fail({
+          userId: state.userId,
+          operationId: pending.operationId,
+          inputHash: claim.inputHash,
+          errorCode: 'TOOL_EXECUTION_FAILED'
+        }).catch(() => {})
+      }
+      return failConfirmedWrite('TOOL_EXECUTION_FAILED')
+    }
+
+    if (!toolHandlesClaim) {
+      if (
+        typeof operationStore.succeed !== 'function' ||
+        typeof operationStore.fail !== 'function'
+      ) {
+        return failConfirmedWrite('CONFIRMATION_STATE_INVALID')
+      }
+      try {
+        await operationStore.succeed({
+          userId: state.userId,
+          operationId: pending.operationId,
+          inputHash: claim.inputHash,
+          result: outcome.result
+        })
+      } catch {
+        await operationStore.fail({
+          userId: state.userId,
+          operationId: pending.operationId,
+          inputHash: claim.inputHash,
+          errorCode: 'TOOL_EXECUTION_FAILED'
+        }).catch(() => {})
+        return failConfirmedWrite('TOOL_EXECUTION_FAILED')
+      }
+    }
+    return {
+      ...output,
+      messages: successfulWriteMessages(
+        state,
+        pending,
+        sourceCalls,
+        executedMessages
+      ),
+      pendingConfirmation: {
+        ...pending,
+        executed: true
       }
     }
   }
@@ -511,9 +611,7 @@ export function createAgentGraph({
     if ((state.errors ?? []).some(item => item?.fatal === true)) {
       return 'finalize_response'
     }
-    return String(state.intentType).split('+').some(
-      intent => POST_WRITE_ANALYSIS_INTENTS.has(intent)
-    )
+    return continuesAfterWrite(state)
       ? 'call_model'
       : 'finalize_response'
   }
