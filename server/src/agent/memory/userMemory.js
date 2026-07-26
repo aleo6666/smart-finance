@@ -153,6 +153,18 @@ function isExpired(row, now) {
   return row.expires_at != null && new Date(row.expires_at).getTime() <= now.getTime()
 }
 
+function whereNotExpired(query, client) {
+  return query.where(expiry =>
+    expiry
+      .whereNull('expires_at')
+      .orWhere('expires_at', '>', client.fn.now())
+  )
+}
+
+function isMysqlDuplicate(error) {
+  return error?.code === 'ER_DUP_ENTRY' || error?.errno === 1062
+}
+
 function auditSnapshot(memory) {
   if (!memory) return null
   return JSON.stringify({
@@ -209,9 +221,13 @@ export function createUserMemoryRepository(db, { now = () => new Date() } = {}) 
   return {
     async listActive(userId) {
       const trustedUserId = normalizeTrustedUserId(userId)
-      const rows = await db('user_memories')
-        .where({ user_id: trustedUserId, status: 'active' })
-        .select()
+      const rows = await whereNotExpired(
+        db('user_memories').where({
+          user_id: trustedUserId,
+          status: 'active'
+        }),
+        db
+      ).select()
       return rows
         .filter(row => !isExpired(row, now()))
         .map(toMemory)
@@ -219,13 +235,14 @@ export function createUserMemoryRepository(db, { now = () => new Date() } = {}) 
 
     async get(userId, namespace, memoryKey) {
       const exact = scope({ userId, namespace, memoryKey })
-      const row = await db('user_memories')
-        .where({
+      const row = await whereNotExpired(
+        db('user_memories').where({
           user_id: exact.userId,
           namespace: exact.namespace,
           memory_key: exact.memoryKey
-        })
-        .first()
+        }),
+        db
+      ).first()
       if (!row || row.status === 'deleted' || isExpired(row, now())) return null
       return toMemory(row)
     },
@@ -254,7 +271,13 @@ export function createUserMemoryRepository(db, { now = () => new Date() } = {}) 
           confirmed_at: null,
           expires_at: expiresAt
         }
-        const inserted = await trx('user_memories').insert(row)
+        let inserted
+        try {
+          inserted = await trx('user_memories').insert(row)
+        } catch (error) {
+          if (isMysqlDuplicate(error)) throw new MemoryAlreadyExistsError()
+          throw error
+        }
         const after = toMemory({ id: inserted?.[0], ...row })
         await insertAudit(trx, {
           ...exact,

@@ -10,8 +10,12 @@ function clone(value) {
   return value === undefined ? undefined : structuredClone(value)
 }
 
-function createFakeDb({ failAudit = false } = {}) {
+function createFakeDb({
+  failAudit = false,
+  userMemoryInsertError = null
+} = {}) {
   const state = { user_memories: [], memory_audit_logs: [] }
+  const expiryQueries = []
   let nextId = 1
 
   function matches(row, criteria) {
@@ -21,8 +25,32 @@ function createFakeDb({ failAudit = false } = {}) {
   function makeClient(target) {
     const client = table => {
       let criteria = {}
+      let expiryPredicate = null
       return {
         where(value) {
+          if (typeof value === 'function') {
+            const expiry = {}
+            value({
+              whereNull(field) {
+                expiry.nullField = field
+                return this
+              },
+              orWhere(field, operator, threshold) {
+                expiry.orField = field
+                expiry.operator = operator
+                expiry.threshold = threshold
+                return this
+              }
+            })
+            assert.equal(expiry.nullField, 'expires_at')
+            assert.equal(expiry.orField, 'expires_at')
+            assert.equal(expiry.operator, '>')
+            expiryQueries.push(table)
+            expiryPredicate = row =>
+              row.expires_at == null ||
+              new Date(row.expires_at).getTime() > new Date(expiry.threshold).getTime()
+            return this
+          }
           criteria = { ...criteria, ...value }
           return this
         },
@@ -30,14 +58,21 @@ function createFakeDb({ failAudit = false } = {}) {
           return this
         },
         async first() {
-          return clone(target[table].find(row => matches(row, criteria)))
+          return clone(target[table].find(row =>
+            matches(row, criteria) && (!expiryPredicate || expiryPredicate(row))
+          ))
         },
         async select() {
-          return clone(target[table].filter(row => matches(row, criteria)))
+          return clone(target[table].filter(row =>
+            matches(row, criteria) && (!expiryPredicate || expiryPredicate(row))
+          ))
         },
         async insert(value) {
           if (table === 'memory_audit_logs' && failAudit) {
             throw new Error('audit unavailable')
+          }
+          if (table === 'user_memories' && userMemoryInsertError) {
+            throw userMemoryInsertError
           }
           const rows = Array.isArray(value) ? value : [value]
           for (const row of rows) {
@@ -80,6 +115,7 @@ function createFakeDb({ failAudit = false } = {}) {
     return result
   }
   db.state = state
+  db.expiryQueries = expiryQueries
   return db
 }
 
@@ -155,6 +191,41 @@ test('listActive isolates users and filters expired memories', async () => {
   assert.deepEqual(await repo.listActive(1), [])
   assert.equal((await repo.listActive(2))[0].value.style, 'detailed')
   assert.equal(await repo.get(1, 'preferences', 'response_style'), null)
+  assert.deepEqual(db.expiryQueries, ['user_memories', 'user_memories', 'user_memories'])
+})
+
+test('propose maps only MySQL duplicate insert races to a typed conflict', async () => {
+  const input = {
+    userId: 7,
+    namespace: 'preferences',
+    memoryKey: 'response_style',
+    value: { style: 'concise' },
+    sessionId: 's-1',
+    operationId: 'op-1'
+  }
+  for (const duplicate of [
+    Object.assign(new Error('database detail'), { code: 'ER_DUP_ENTRY' }),
+    Object.assign(new Error('database detail'), { errno: 1062 })
+  ]) {
+    const duplicateRepo = createUserMemoryRepository(createFakeDb({
+      userMemoryInsertError: duplicate
+    }))
+    await assert.rejects(
+      duplicateRepo.propose(input),
+      error => error.code === 'MEMORY_ALREADY_EXISTS' && error.statusCode === 409
+    )
+  }
+
+  const ordinary = Object.assign(new Error('connection lost'), {
+    code: 'PROTOCOL_CONNECTION_LOST'
+  })
+  const ordinaryRepo = createUserMemoryRepository(createFakeDb({
+    userMemoryInsertError: ordinary
+  }))
+  await assert.rejects(
+    ordinaryRepo.propose(input),
+    error => error === ordinary
+  )
 })
 
 test('update applies classification, optimistic locking, and soft delete', async () => {
