@@ -13,7 +13,7 @@ import { authLimiter, apiLimiter, strictLimiter } from './middleware/rateLimiter
 import db from './db.js'
 import { ensureSchema } from './schema.js'
 import { deviceIdMiddleware } from './middleware/deviceId.js'
-import chatRouter from './routes/chat.js'
+import { createChatRouter } from './routes/chat.js'
 import recordsRouter from './routes/records.js'
 import reportsRouter from './routes/reports.js'
 import goalsRouter from './routes/goals.js'
@@ -36,6 +36,8 @@ import defaultLmStudioClient from './services/lmStudioClient.js'
 import getRedisClient from './redis.js'
 import { createDefaultChecks } from './services/healthService.js'
 import { createHealthRouter } from './routes/health.js'
+
+const chatRouter = createChatRouter()
 
 const app = express()
 
@@ -105,10 +107,88 @@ export async function bootstrap() {
     }
   })
 
+  // LangGraph Agent bootstrapping (before-knowledge vector init)
+  if (config.agent.qdrantKnowledgeEnabled) {
+    try {
+      const { initKnowledgeCollection } = await import('./services/knowledgeVector.js')
+      await initKnowledgeCollection({ embeddingClient: defaultLmStudioClient })
+      console.log('[Knowledge] collection initialized')
+    } catch (error) {
+      console.warn('[Knowledge] init skipped:', error.message)
+    }
+  }
+
+  if (config.agent.enabled) {
+    try {
+      await bootstrapAgent()
+    } catch (error) {
+      console.warn('[Agent] bootstrap skipped:', error.message)
+    }
+  }
+
   return app.listen(config.server.port, '0.0.0.0', () => {
     console.log(`Smart Finance API started: http://localhost:${config.server.port}`)
     startScheduler()
   })
+}
+
+async function bootstrapAgent() {
+  const { createCheckpointer, CheckpointerSetupError } = await import('./agent/checkpointer.js')
+  const { createFinanceModel } = await import('./agent/model.js')
+  const { createAgentGraph } = await import('./agent/graph.js')
+  const { buildRuntimeContext } = await import('./agent/runtime.js')
+  const { createAgentService } = await import('./agent/service.js')
+
+  let checkpointer
+  try {
+    checkpointer = await createCheckpointer()
+  } catch (error) {
+    if (error instanceof CheckpointerSetupError) throw error
+    throw new CheckpointerSetupError()
+  }
+
+  const model = createFinanceModel({
+    baseUrl: config.lmStudio.baseUrl,
+    apiKey: config.lmStudio.apiKey,
+    model: config.lmStudio.chatModel,
+    maxRetries: config.agent.networkRetryCount
+  })
+
+  const graph = createAgentGraph({
+    model,
+    checkpointer,
+    config
+  })
+
+  const legacyHandler = async (state, runtime) => ({
+    success: true,
+    data: {
+      intent: 'chat',
+      message: '',
+      source: 'legacy'
+    }
+  })
+
+  const agentService = createAgentService({
+    config,
+    graph,
+    legacy: legacyHandler
+  })
+
+  // Re-create chat router with agent deps injected
+  const newChatRouter = createChatRouter({
+    agentService,
+    buildRuntimeContext
+  })
+
+  // Replace the router reference used by Express middleware
+  app._router.stack.forEach((layer, index) => {
+    if (layer.route === undefined && layer.handle === chatRouter) {
+      app._router.stack[index].handle = newChatRouter
+    }
+  })
+
+  console.log('[Agent] LangGraph agent initialized')
 }
 
 if (process.env.NODE_ENV !== 'test') {

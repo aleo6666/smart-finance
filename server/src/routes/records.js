@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import db from '../db.js'
+import config from '../config.js'
 import { getLatestRate } from '../services/exchangeRate.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { scanReceipt } from '../services/vision.js'
@@ -34,11 +35,11 @@ export function createRecordsRouter({
   ocrSessionService = { saveOcrSession, readOcrSession, clearOcrSession },
   ocrConfirmService = { saveConfirmedOcrRecords },
   operationStore = createOperationStore(dbClient),
-  vectorMemory = defaultVectorMemory
+  vectorMemory = defaultVectorMemory,
+  billVectorWriteEnabled = config.agent.billVectorWriteEnabled
 } = {}) {
   const router = Router()
   router.use(authMiddleware)
-  const logger = createLogger('Records')
 
   async function fetchRecord(id, userId) {
     return dbClient('records').where({ id, user_id: userId }).first()
@@ -87,7 +88,9 @@ export function createRecordsRouter({
     })
 
     const record = await fetchRecord(id, req.userId)
-    vectorMemory.embedRecord(record).catch(error => console.warn('[Vector] embed skipped for record id=' + id + ':', error.message))
+    if (billVectorWriteEnabled) {
+      vectorMemory.embedRecord(record).catch(error => console.warn('[Vector] embed skipped for record id=' + id + ':', error.message))
+    }
     await checkBudgetAfterRecord({ record }).catch(error => console.warn('[Monitor] skipped:', error.message))
     logger.info('创建记账记录', { userId: req.userId, recordId: id, amount, category, type })
     res.json({ success: true, data: record })
@@ -116,7 +119,9 @@ export function createRecordsRouter({
     })
 
     const updated = await fetchRecord(req.params.id, req.userId)
-    vectorMemory.embedRecord(updated).catch(error => console.warn('[Vector] re-index skipped for record id=' + req.params.id + ':', error.message))
+    if (billVectorWriteEnabled) {
+      vectorMemory.embedRecord(updated).catch(error => console.warn('[Vector] re-index skipped for record id=' + req.params.id + ':', error.message))
+    }
     logger.info('修改记账记录', { userId: req.userId, recordId: req.params.id })
     res.json({ success: true, data: updated })
   })
@@ -125,7 +130,9 @@ export function createRecordsRouter({
     const rec = await fetchRecord(req.params.id, req.userId)
     if (!rec) return res.status(404).json({ success: false, error: '记录不存在' })
     await dbClient('records').where({ id: req.params.id, user_id: req.userId }).delete()
-    vectorMemory.deleteRecordVector(req.params.id).catch(error => console.warn('[Vector] delete skipped for record id=' + req.params.id + ':', error.message))
+    if (billVectorWriteEnabled) {
+      vectorMemory.deleteRecordVector(req.params.id).catch(error => console.warn('[Vector] delete skipped for record id=' + req.params.id + ':', error.message))
+    }
     logger.info('删除记账记录', { userId: req.userId, recordId: req.params.id })
     res.json({ success: true })
   })
@@ -218,9 +225,6 @@ export function createRecordsRouter({
         operationStore,
         confirmedRecords: records
       })
-      if (result.status !== 'in_progress') {
-        await ocrSessionService.clearOcrSession({ userId: req.userId, ocrSessionId })
-      }
       logger.info('OCR确认保存记录', { userId: req.userId, count: result.count })
       res.json({ success: true, data: result })
     } catch (error) {

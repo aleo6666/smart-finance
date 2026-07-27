@@ -9,10 +9,12 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
-    "test": "node --test --test-force-exit --import ./test/setup.js \"test/*.test.js\"",
+    "test": "node --test --test-force-exit --import ./test/setup.js \"test/**/*.test.js\"",
+    "test:agent": "node --test --test-force-exit \"test/agent/*.test.js\"",
     "migrate:sqlite": "node src/scripts/migrate-sqlite-to-mysql.js",
     "reindex:rag": "node src/scripts/reindex-rag.js",
-    "smoke:local": "node src/scripts/smoke-local.js"
+    "smoke:local": "node src/scripts/smoke-local.js",
+    "vectors:delete-legacy": "node src/scripts/delete-legacy-bill-vectors.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",

@@ -110,15 +110,13 @@ export function createOcrConfirmRepository(dbClient = db) {
   }
 }
 
-async function persistConfirmedOcrRecords({
+async function insertConfirmedOcrRecords({
   userId,
   deviceId,
   session,
   confirmedRecords,
-  repository = createOcrConfirmRepository(),
-  embedRecordFn = embedRecord,
-  checkBudgetAfterRecordFn = checkBudgetAfterRecord,
-  logger = console
+  repository,
+  trx
 }) {
   const normalizedRecords = (Array.isArray(confirmedRecords) ? confirmedRecords : []).map(normalizeOcrRecord)
   if (normalizedRecords.length === 0) throw new Error('没有可保存的确认记录')
@@ -126,8 +124,7 @@ async function persistConfirmedOcrRecords({
   const savedRecords = []
   const originalRecords = Array.isArray(session?.records) ? session.records : []
 
-  await repository.transaction(async trx => {
-    for (const [index, record] of normalizedRecords.entries()) {
+  for (const [index, record] of normalizedRecords.entries()) {
       const row = {
         device_id: deviceId || `user-${userId}`,
         user_id: userId,
@@ -159,15 +156,23 @@ async function persistConfirmedOcrRecords({
         ocr_correct: corrected ? 0 : 1,
         confirmed_at: new Date()
       }, trx)
-    }
-  })
+  }
 
-  for (const record of savedRecords) {
+  return savedRecords
+}
+
+async function postProcessConfirmedRecords({
+  records,
+  embedRecordFn,
+  checkBudgetAfterRecordFn,
+  logger,
+  billVectorWriteEnabled = false
+}) {
+  if (!billVectorWriteEnabled) return
+  for (const record of records) {
     await embedRecordFn(record).catch(() => logger.warn('[Vector] OCR embed skipped'))
     await checkBudgetAfterRecordFn({ record }).catch(() => logger.warn('[Monitor] OCR skipped'))
   }
-
-  return { records: savedRecords, count: savedRecords.length }
 }
 
 export async function saveConfirmedOcrRecords({
@@ -181,7 +186,8 @@ export async function saveConfirmedOcrRecords({
   repository = createOcrConfirmRepository(),
   embedRecordFn = embedRecord,
   checkBudgetAfterRecordFn = checkBudgetAfterRecord,
-  logger = console
+  logger = console,
+  billVectorWriteEnabled = false
 }) {
   if (session?.userId != null && Number(session.userId) !== Number(userId)) {
     throw new OcrConfirmError('FORBIDDEN', 'forbidden', 403)
@@ -198,17 +204,12 @@ export async function saveConfirmedOcrRecords({
     throw new OcrConfirmError('INVALID_OCR_CONFIRMATION', 'invalid OCR confirmation', 400)
   }
 
-  if (!operationStore) {
-    return persistConfirmedOcrRecords({
-      userId,
-      deviceId,
-      session,
-      confirmedRecords: normalizedRecords,
-      repository,
-      embedRecordFn,
-      checkBudgetAfterRecordFn,
-      logger
-    })
+  if (typeof operationStore?.withDb !== 'function') {
+    throw new OcrConfirmError(
+      'OCR_CONFIRM_IDEMPOTENCY_UNAVAILABLE',
+      'OCR confirmation idempotency unavailable',
+      503
+    )
   }
 
   if (session?.userId == null || typeof uploadId !== 'string' || !uploadId) {
@@ -218,49 +219,88 @@ export async function saveConfirmedOcrRecords({
   if (operationId !== trustedOperationId) {
     throw new OcrConfirmError('INVALID_OPERATION', 'invalid operation', 400)
   }
-  const claim = await operationStore.claim({
-    userId,
-    operationId: trustedOperationId,
-    operationType: 'ocr_confirm',
-    input: {
-      uploadId,
-      preview: normalizedRecords
+
+  let outcome
+  try {
+    outcome = await repository.transaction(async trx => {
+      const transactionStore = operationStore.withDb(trx)
+      if (
+        typeof transactionStore?.claim !== 'function' ||
+        typeof transactionStore?.succeed !== 'function'
+      ) {
+        throw new OcrConfirmError(
+          'OCR_CONFIRM_IDEMPOTENCY_UNAVAILABLE',
+          'OCR confirmation idempotency unavailable',
+          503
+        )
+      }
+      const claim = await transactionStore.claim({
+        userId,
+        operationId: trustedOperationId,
+        operationType: 'ocr_confirm',
+        input: {
+          uploadId,
+          preview: normalizedRecords
+        }
+      })
+      if (claim.status === 'succeeded') {
+        return { result: claim.result, postProcessRecords: [] }
+      }
+      if (claim.status === 'in_progress') {
+        return {
+          result: { status: 'in_progress', records: [], count: 0 },
+          postProcessRecords: []
+        }
+      }
+      if (claim.status !== 'owner') {
+        throw new OcrConfirmError(
+          'OCR_CONFIRM_FAILED',
+          'OCR confirmation unavailable',
+          503
+        )
+      }
+
+      const savedRecords = await insertConfirmedOcrRecords({
+        userId,
+        deviceId,
+        session,
+        confirmedRecords: normalizedRecords,
+        repository,
+        trx
+      })
+      const result = toJsonSafe({
+        records: savedRecords,
+        count: savedRecords.length
+      })
+      await transactionStore.succeed({
+        userId,
+        operationId: trustedOperationId,
+        inputHash: claim.inputHash,
+        result
+      })
+      return {
+        result,
+        postProcessRecords: savedRecords
+      }
+    })
+  } catch (error) {
+    if (
+      error instanceof OcrConfirmError ||
+      error?.code === 'OPERATION_ID_CONFLICT'
+    ) {
+      throw error
     }
-  })
-  if (claim.status === 'succeeded') return claim.result
-  if (claim.status === 'in_progress') {
-    return { status: 'in_progress', records: [], count: 0 }
-  }
-  if (claim.status !== 'owner') {
     throw new OcrConfirmError('OCR_CONFIRM_FAILED', 'OCR confirmation unavailable', 503)
   }
 
-  try {
-    const persistedResult = await persistConfirmedOcrRecords({
-      userId,
-      deviceId,
-      session,
-      confirmedRecords: normalizedRecords,
-      repository,
+  if (outcome.postProcessRecords.length > 0) {
+    await postProcessConfirmedRecords({
+      records: outcome.postProcessRecords,
       embedRecordFn,
       checkBudgetAfterRecordFn,
-      logger
+      logger,
+      billVectorWriteEnabled
     })
-    const result = toJsonSafe(persistedResult)
-    await operationStore.succeed({
-      userId,
-      operationId: trustedOperationId,
-      inputHash: claim.inputHash,
-      result
-    })
-    return result
-  } catch {
-    await operationStore.fail({
-      userId,
-      operationId: trustedOperationId,
-      inputHash: claim.inputHash,
-      errorCode: 'OCR_CONFIRM_FAILED'
-    }).catch(() => {})
-    throw new OcrConfirmError('OCR_CONFIRM_FAILED', 'OCR confirmation unavailable', 503)
   }
+  return outcome.result
 }

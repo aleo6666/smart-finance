@@ -27,6 +27,7 @@ import {
 import { recordAgentEvent as defaultRecordAgentEvent } from '../services/observeService.js'
 import { submitAdviceForReview as defaultSubmitAdviceForReview } from '../services/adviceReview.js'
 import { processQuery as defaultMasterProcessQuery } from '../services/masterAgent.js'
+import { createAgentService, inRollout } from '../agent/service.js'
 
 function defaultGetUserId(req) {
   try {
@@ -54,7 +55,9 @@ export function createChatRouter({
   executePlan = defaultExecutePlan,
   recordAgentEvent = defaultRecordAgentEvent,
   submitAdviceForReview = defaultSubmitAdviceForReview,
-  masterProcessQuery = defaultMasterProcessQuery
+  masterProcessQuery = defaultMasterProcessQuery,
+  agentService = null,
+  buildRuntimeContext = null
 } = {}) {
   const router = Router()
 
@@ -104,6 +107,19 @@ export function createChatRouter({
 
     try {
       const identity = userId ? `user-${userId}` : deviceId
+
+      // ---- LangGraph Agent 接入（灰度兼容）----
+      if (agentService && buildRuntimeContext && userId) {
+        const runtime = buildRuntimeContext({ req, userId, isAdmin: false })
+        const state = { messages: [{ role: 'user', content: message }] }
+        const output = await agentService.handle(state, runtime)
+        if (output.data?.source && output.data.source !== 'legacy') {
+          await appendTurn(identity, message, output.data?.message || '').catch(error => {
+            console.warn('[Chat] LangGraph context append skipped:', error.message)
+          })
+          return res.json(output)
+        }
+      }
 
       // ---- 极简 3 Agent 架构（主从协同）----
       // 通过 use3Agent 参数启用新架构，用于灰度验证
