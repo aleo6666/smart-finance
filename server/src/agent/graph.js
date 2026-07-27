@@ -72,6 +72,48 @@ function parseTextToolCalls(content, knownNames) {
     while ((match = bareRe.exec(content)) !== null) {
       blocks.push({ raw: match[0], json: match[0] })
     }
+    // Also catch bare param objects without "tool" key (e.g. {"start_date": "...", "end_date": "..."})
+    if (blocks.length === 0) {
+      const paramRe = /\{[^}]*"(start_?date|end_?date|month|amount|category|type|query)"[^}]*\}/gi
+      while ((match = paramRe.exec(content)) !== null) {
+        blocks.push({ raw: match[0], json: match[0] })
+      }
+    }
+  }
+
+  const ARGS_KEY_MAP = {
+    start_date: 'startDate',
+    end_date: 'endDate',
+    startDate: 'startDate',
+    endDate: 'endDate',
+    query_kind: 'queryKind',
+    queryKind: 'queryKind',
+    knowledge_space_id: 'knowledgeSpaceId',
+    knowledgeSpaceId: 'knowledgeSpaceId'
+  }
+
+  function hasQueryParams(obj) {
+  if (!obj || typeof obj !== 'object') return false
+  const keys = Object.keys(obj)
+  return keys.some(k => /^(start_?date|end_?date|month|amount|category|type|query)$/i.test(k))
+}
+
+function guessToolByParams(obj) {
+  if (!obj || typeof obj !== 'object') return null
+  const keys = Object.keys(obj)
+  if (keys.some(k => /^(start_?date|end_?date|month|category|type|query_kind|queryKind)$/i.test(k))) return 'query_transactions'
+  if (keys.some(k => /^(amount)$/i.test(k))) return 'record_transaction'
+  return null
+}
+
+function normalizeArgs(args) {
+    if (!args || typeof args !== 'object' || Array.isArray(args)) return {}
+    const normalized = {}
+    for (const [key, value] of Object.entries(args)) {
+      const mapped = ARGS_KEY_MAP[key] || key
+      normalized[mapped] = value
+    }
+    return normalized
   }
 
   const toolCalls = []
@@ -79,14 +121,14 @@ function parseTextToolCalls(content, knownNames) {
   for (const block of blocks) {
     try {
       const parsed = JSON.parse(block.json.trim())
-      if (parsed && typeof parsed.tool === 'string') {
-        const aliasName = parsed.tool
+      if (parsed && (typeof parsed.tool === 'string' || hasQueryParams(parsed))) {
+        const aliasName = parsed.tool || guessToolByParams(parsed)
         const resolvedName = TEXT_TOOL_ALIASES[aliasName] || aliasName
-        if (knownNames.has(resolvedName)) {
+        if (resolvedName && knownNames.has(resolvedName)) {
           toolCalls.push({
             id: `text_${Math.random().toString(36).slice(2, 10)}`,
             name: resolvedName,
-            args: parsed.arguments || {}
+            args: normalizeArgs(parsed.arguments || parsed.params || parsed)
           })
           cleanContent = cleanContent.replace(block.raw, '')
         }
