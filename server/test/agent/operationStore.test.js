@@ -63,6 +63,29 @@ test('operation hash is stable across object key order', () => {
   )
 })
 
+test('operation store can bind all operations to an existing Knex transaction', async () => {
+  const rootDb = createFakeDb()
+  const transactionDb = createFakeDb()
+  const store = createOperationStore(rootDb).withDb(transactionDb)
+
+  const claim = await store.claim({
+    userId: 7,
+    operationId: 'operation-transaction',
+    operationType: 'ocr_confirm',
+    input: { uploadId: 'session-1' }
+  })
+  await store.succeed({
+    userId: 7,
+    operationId: 'operation-transaction',
+    inputHash: claim.inputHash,
+    result: { count: 1 }
+  })
+
+  assert.equal(rootDb.rows.length, 0)
+  assert.equal(transactionDb.rows.length, 1)
+  assert.equal(transactionDb.rows[0].status, 'succeeded')
+})
+
 test('operation claim owns once and replays only the same successful input', async () => {
   const store = createOperationStore(createFakeDb())
   const input = { amount: 25, category: '交通' }

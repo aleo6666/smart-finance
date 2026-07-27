@@ -97,7 +97,11 @@ export function hashOperation(value) {
 export function createOperationStore(db) {
   if (typeof db !== 'function') throw new TypeError('db must be a Knex client')
 
-  return {
+  const store = {
+    withDb(boundDb) {
+      return createOperationStore(boundDb)
+    },
+
     async claim({
       userId,
       operationId,
@@ -219,4 +223,5 @@ export function createOperationStore(db) {
       if (count !== 1) throw new OperationStateConflictError()
     }
   }
+  return store
 }

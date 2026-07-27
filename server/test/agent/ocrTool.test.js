@@ -144,6 +144,41 @@ test('disabled, timed out, and failed providers return the same safe manual form
   }
 })
 
+test('disabled OCR does not construct a provider client', async () => {
+  let factoryCalls = 0
+  const tool = createTool({
+    enabled: false,
+    client: undefined,
+    clientFactory: () => {
+      factoryCalls += 1
+      throw new Error('missing token=secret')
+    }
+  })
+
+  assert.deepEqual(
+    await tool.invoke({ uploadId: 'up-1' }),
+    manualOcrFallback('OCR_DISABLED')
+  )
+  assert.equal(factoryCalls, 0)
+})
+
+test('provider construction failure returns a safe manual fallback', async () => {
+  let factoryCalls = 0
+  const tool = createTool({
+    client: undefined,
+    clientFactory: () => {
+      factoryCalls += 1
+      throw new Error('missing token=secret')
+    }
+  })
+
+  const result = await tool.invoke({ uploadId: 'up-1' })
+
+  assert.deepEqual(result, manualOcrFallback('OCR_UNAVAILABLE'))
+  assert.equal(factoryCalls, 1)
+  assert.equal(JSON.stringify(result).includes('secret'), false)
+})
+
 test('OCR timeout aborts the in-flight provider request', async () => {
   let aborted = false
   const tool = createTool({

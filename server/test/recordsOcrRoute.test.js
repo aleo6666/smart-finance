@@ -101,7 +101,7 @@ test('POST /api/records/ocr returns a manual form instead of 500 when provider f
   }
 })
 
-test('POST /api/records/ocr/confirm saves confirmed records and clears session', async () => {
+test('POST /api/records/ocr/confirm keeps the session for idempotent retries', async () => {
   const calls = { readSession: 0, clearSession: 0, confirmed: 0 }
   const app = express()
   app.use(express.json())
@@ -133,25 +133,30 @@ test('POST /api/records/ocr/confirm saves confirmed records and clears session',
 
   const { server, url } = await listen(app)
   try {
-    const response = await fetch(`${url}/api/records/ocr/confirm`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${signToken(7)}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        ocrSessionId: 'session-1',
-        records: [{ amount: 26, category: '餐饮', date: '2026-07-17' }]
+    const responses = []
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const response = await fetch(`${url}/api/records/ocr/confirm`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${signToken(7)}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          ocrSessionId: 'session-1',
+          records: [{ amount: 26, category: '餐饮', date: '2026-07-17' }]
+        })
       })
-    })
-    const json = await response.json()
+      responses.push({ response, json: await response.json() })
+    }
 
-    assert.equal(response.status, 200)
-    assert.equal(json.success, true)
-    assert.equal(json.data.count, 1)
-    assert.equal(calls.readSession, 1)
-    assert.equal(calls.confirmed, 1)
-    assert.equal(calls.clearSession, 1)
+    for (const { response, json } of responses) {
+      assert.equal(response.status, 200)
+      assert.equal(json.success, true)
+      assert.equal(json.data.count, 1)
+    }
+    assert.equal(calls.readSession, 2)
+    assert.equal(calls.confirmed, 2)
+    assert.equal(calls.clearSession, 0)
   } finally {
     server.close()
   }

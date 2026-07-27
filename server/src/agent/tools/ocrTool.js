@@ -158,7 +158,8 @@ async function withTimeout(operation, timeoutMs) {
 export function createOcrTool({
   runtime,
   enabled = defaultConfig.agent.paddleOcrEnabled,
-  client = createPaddleOcrClient(),
+  client,
+  clientFactory = createPaddleOcrClient,
   resolveUpload,
   normalize = normalizePaddleOcrResult,
   timeoutMs = defaultConfig.paddleOcr.timeoutMs ??
@@ -174,8 +175,9 @@ export function createOcrTool({
     const upload = await resolveOwnedUpload(resolveUpload, { uploadId, userId })
     const internalInput = parseInput(upload)
     try {
+      const providerClient = client ?? clientFactory()
       const raw = await withTimeout(
-        signal => client.parse(internalInput, { signal }),
+        signal => providerClient.parse(internalInput, { signal }),
         timeoutMs
       )
       const preview = normalizeOcrPreview(await normalize(raw))
