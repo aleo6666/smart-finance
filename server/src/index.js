@@ -1,8 +1,3 @@
-import { webcrypto } from 'node:crypto'
-
-// Node 18 compat: provide Web Crypto API global needed by langchain internals
-if (!globalThis.crypto) globalThis.crypto = webcrypto
-
 import dotenv from 'dotenv'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
