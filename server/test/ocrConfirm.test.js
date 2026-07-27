@@ -203,7 +203,8 @@ test('saveConfirmedOcrRecords inserts records and OCR evaluations', async () => 
     confirmedRecords: [{ amount: 26, category: '餐饮', date: '2026-07-17', merchant: 'A', description: '午餐' }],
     repository,
     embedRecordFn: async record => embedded.push(record),
-    checkBudgetAfterRecordFn: async input => monitored.push(input)
+    checkBudgetAfterRecordFn: async input => monitored.push(input),
+    billVectorWriteEnabled: true
   })
 
   assert.equal(result.count, 1)
