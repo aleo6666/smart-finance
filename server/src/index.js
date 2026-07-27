@@ -1,3 +1,9 @@
+import { createRequire } from 'node:module'
+
+// Node 18 polyfill: crypto global needed by langchain internals
+const _require = createRequire(import.meta.url)
+if (!globalThis.crypto) globalThis.crypto = _require('node:crypto')
+
 import dotenv from 'dotenv'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
