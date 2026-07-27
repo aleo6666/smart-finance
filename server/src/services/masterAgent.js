@@ -53,12 +53,12 @@ function detectTaskPattern(message) {
   }
 
   // 分类/占比相关
-  if (/(分类|占比|构成|花在哪|主要消费)/.test(text)) {
+  if (/(分类统计|类别分析|分类占比|分类|占比|构成|花在哪|主要消费|消费类别)/.test(text)) {
     return TASK_PATTERNS.CATEGORY_ANALYSIS
   }
 
   // 专业分析/建议（需要财务分析师介入）
-  if (/(专业分析|财务顾问|私人助理|理财建议|诊断一下|给点建议|优化建议|储蓄规划|存钱计划|健康报告|月度报告)/.test(text)) {
+  if (/(专业分析|财务顾问|私人助理|理财建议|诊断一下|给点建议|优化建议|储蓄规划|存钱计划|健康报告|月度报告|分析一下|帮我分析|分析我的|看看账单|消费报告)/.test(text)) {
     return TASK_PATTERNS.PROFESSIONAL_ADVICE
   }
 
@@ -93,7 +93,7 @@ function buildTaskPlan({ pattern, userId, message, hints = {} }) {
           id: 'retrieve_summary',
           agent: 'retrieval',
           type: RETRIEVAL_TYPES.FINANCE_SUMMARY,
-          params: { hints: { ...hints, queryKind: 'summary' } },
+          params: { hints: { ...hints, month: thisMonth, queryKind: 'summary' } },
           depends_on: []
         }
       ]

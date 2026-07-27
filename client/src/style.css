@@ -605,6 +605,14 @@ body {
 }
 
 /* 提醒面板 */
+.sidebar-mask {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.35);
+  z-index: 150;
+}
+
 .panel-mask {
   position: fixed;
   inset: 0;
@@ -702,27 +710,119 @@ body {
     top: 0;
     bottom: 0;
     transform: translateX(-100%);
+    z-index: 200;
   }
 
   .sidebar.open {
     transform: translateX(0);
+    box-shadow: 4px 0 20px rgba(0,0,0,0.15);
+  }
+
+  .sidebar-mask {
+    display: block !important;
+  }
+
+  .topbar {
+    padding: 0 12px;
   }
 
   .topbar .menu-btn {
     display: block;
   }
 
+  .topbar .page-title {
+    font-size: 15px;
+  }
+
+  .ledger-select {
+    display: none;
+  }
+
+  .user-tag {
+    font-size: 12px;
+    padding: 2px 6px;
+  }
+
   .message {
-    max-width: 90%;
+    max-width: 92%;
+  }
+
+  .chat-messages {
+    padding: 12px;
+    gap: 12px;
+  }
+
+  .chat-input-area {
+    padding: 10px 12px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 12px));
+  }
+
+  .chat-input-wrapper textarea {
+    font-size: 16px;
+  }
+
+  .report-panel {
+    padding: 12px;
   }
 
   .report-grid {
     grid-template-columns: 1fr;
+    gap: 12px;
   }
 
   .stat-row {
     grid-template-columns: repeat(3, 1fr);
     gap: 6px;
+  }
+
+  .stat-item {
+    padding: 10px 4px;
+  }
+
+  .stat-item .stat-value {
+    font-size: 16px;
+  }
+
+  .goal-panel {
+    padding: 12px;
+  }
+
+  .modal {
+    width: 95%;
+    padding: 20px;
+  }
+
+  .reminder-panel {
+    width: 100vw;
+    max-height: 50vh;
+    right: 0;
+    left: 0;
+  }
+}
+
+@media (max-width: 400px) {
+  .stat-item .stat-value {
+    font-size: 14px;
+  }
+
+  .stat-item .stat-label {
+    font-size: 10px;
+  }
+
+  .chat-input-wrapper {
+    gap: 6px;
+  }
+
+  .btn-upload {
+    width: 36px;
+    height: 36px;
+    font-size: 16px;
+  }
+
+  .chat-input-wrapper button {
+    width: 36px;
+    height: 36px;
+    font-size: 16px;
   }
 }
 

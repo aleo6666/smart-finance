@@ -1,0 +1,205 @@
+/* ===== 移动端外壳样式（仅 mobile 入口加载，不污染 PC 端） ===== */
+
+* {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+}
+
+#mobile-app {
+  height: 100vh;
+  height: 100dvh;
+}
+
+.m-app {
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+/* 顶部栏 */
+.m-topbar {
+  flex-shrink: 0;
+  height: calc(52px + env(safe-area-inset-top));
+  padding-top: env(safe-area-inset-top);
+  padding-left: 14px;
+  padding-right: 8px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.m-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+.m-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.m-ledger {
+  max-width: 110px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text);
+  font-size: 12px;
+  outline: none;
+}
+.m-bell {
+  position: relative;
+  background: none;
+  border: none;
+  padding: 4px 6px;
+  cursor: pointer;
+}
+.m-badge {
+  position: absolute;
+  top: 0;
+  right: 2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+}
+.m-more {
+  background: none;
+  border: none;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+/* 内容区：固定高度 + flex 列，内部页面各自滚动 */
+.m-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* 无 flex:1 根容器的页面：在移动端撑满并内部滚动 */
+.m-content > .exchange-panel,
+.m-content > .import-page {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+/* 底部 Tab 栏 */
+.m-tabbar {
+  flex-shrink: 0;
+  display: flex;
+  background: var(--bg-card);
+  border-top: 1px solid var(--border);
+  padding-bottom: env(safe-area-inset-bottom);
+  height: calc(54px + env(safe-area-inset-bottom));
+}
+.m-tab {
+  flex: 1;
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  text-decoration: none;
+  color: var(--text-secondary);
+  font-size: 11px;
+  transition: color 0.15s;
+}
+.m-tab-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+.m-tab.router-link-active,
+.m-tab.router-link-exact-active {
+  color: var(--primary);
+}
+
+/* 底部弹出层（更多 / 提醒） */
+.m-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 200;
+  display: flex;
+  align-items: flex-end;
+}
+.m-sheet {
+  width: 100%;
+  background: var(--bg-card);
+  border-radius: 16px 16px 0 0;
+  padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+}
+.m-sheet-item {
+  display: block;
+  width: 100%;
+  text-align: center;
+  padding: 15px;
+  background: none;
+  border: none;
+  font-size: 15px;
+  color: var(--text);
+  border-radius: 10px;
+}
+.m-sheet-item:active {
+  background: #f1f5f9;
+}
+.m-sheet-item.danger {
+  color: var(--danger);
+}
+.m-reminder-sheet {
+  max-height: 72vh;
+  overflow-y: auto;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+}
+.m-reminder-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.m-reminder-header h4 {
+  font-size: 15px;
+}
+.m-reminder-empty {
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 14px;
+  padding: 30px 0;
+}
+
+/* 弹出层动画 */
+.sheet-enter-active,
+.sheet-leave-active {
+  transition: opacity 0.25s ease;
+}
+.sheet-enter-from,
+.sheet-leave-to {
+  opacity: 0;
+}
+.sheet-enter-active .m-sheet,
+.sheet-leave-active .m-sheet {
+  transition: transform 0.25s ease;
+}
+.sheet-enter-from .m-sheet,
+.sheet-leave-to .m-sheet {
+  transform: translateY(100%);
+}

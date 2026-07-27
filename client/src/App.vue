@@ -40,6 +40,8 @@
       </div>
     </aside>
 
+    <div v-if="store.sidebarOpen" class="sidebar-mask" @click="store.toggleSidebar()"></div>
+
     <div class="main-content">
       <div class="topbar">
         <button class="menu-btn" @click="store.toggleSidebar()">☰</button>

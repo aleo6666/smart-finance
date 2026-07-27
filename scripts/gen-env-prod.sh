@@ -17,7 +17,7 @@ VECTOR_DB_URL=http://qdrant:6333
 
 LM_STUDIO_BASE_URL=https://api.deepseek.com/v1
 LM_STUDIO_API_KEY=<填写你的 DeepSeek API Key>
-LM_STUDIO_CHAT_MODEL=deepseek-chat
+LM_STUDIO_CHAT_MODEL=deepseek-v4-pro
 
 LM_STUDIO_EMBEDDING_BASE_URL=https://open.bigmodel.cn/api/paas/v4
 LM_STUDIO_EMBEDDING_API_KEY=<填写你的智谱 API Key>

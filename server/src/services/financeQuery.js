@@ -22,11 +22,15 @@ function applyFilters(query, { userId, hints = {} }) {
 
 function scopeText(hints = {}) {
   const parts = []
-  if (hints.month) parts.push(hints.month)
+  const now = new Date()
+  const thisMonth = now.toISOString().slice(0, 7)
+  if (hints.month) {
+    parts.push(hints.month === thisMonth ? '本月' : hints.month)
+  }
   const typeText = hints.type === 'income' ? '收入' : hints.type === 'expense' ? '支出' : ''
   if (hints.category) parts.push(`${hints.category}${typeText}`)
   else if (typeText) parts.push(typeText)
-  return parts.join(' ') || '当前条件'
+  return parts.join(' ') || '全部'
 }
 
 export async function queryFinanceSummary({
