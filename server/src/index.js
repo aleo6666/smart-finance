@@ -1,8 +1,7 @@
-import { createRequire } from 'node:module'
+import { webcrypto } from 'node:crypto'
 
-// Node 18 compat: crypto global needed by langchain internals
-const _require = createRequire(import.meta.url)
-if (!globalThis.crypto) globalThis.crypto = _require('node:crypto')
+// Node 18 compat: provide Web Crypto API global needed by langchain internals
+if (!globalThis.crypto) globalThis.crypto = webcrypto
 
 import dotenv from 'dotenv'
 import { dirname, join } from 'path'
