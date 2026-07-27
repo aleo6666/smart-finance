@@ -1,3 +1,11 @@
+import { randomUUID as nodeRandomUUID, webcrypto } from 'node:crypto'
+
+// Node 18 compat: langchain internals need globalThis.crypto with randomUUID
+if (!globalThis.crypto) {
+  webcrypto.randomUUID = nodeRandomUUID
+  globalThis.crypto = webcrypto
+}
+
 import dotenv from 'dotenv'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'

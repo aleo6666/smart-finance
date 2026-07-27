@@ -1,14 +1,11 @@
-FROM node:22.21.1-alpine
+FROM smart-finance-backend:latest
 
 WORKDIR /app
 
-RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories && \
-    (apk add --no-cache python3 make g++ pkgconfig \
-    cairo-dev pango-dev pixman-dev giflib-dev jpeg-dev freetype-dev || true)
-
 COPY package*.json ./
-RUN npm config set registry https://registry.npmmirror.com && \
-    npm ci --omit=dev
+RUN rm -rf node_modules && \
+    npm config set registry https://registry.npmmirror.com && \
+    npm ci --omit=dev --ignore-engines
 
 COPY src/ ./src/
 RUN mkdir -p uploads
