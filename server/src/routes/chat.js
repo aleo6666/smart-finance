@@ -27,7 +27,14 @@ import {
 import { recordAgentEvent as defaultRecordAgentEvent } from '../services/observeService.js'
 import { submitAdviceForReview as defaultSubmitAdviceForReview } from '../services/adviceReview.js'
 import { processQuery as defaultMasterProcessQuery } from '../services/masterAgent.js'
-import { createAgentService, inRollout } from '../agent/service.js'
+
+// Lazily set during agent bootstrap — avoids import-time dependency on agent modules
+let _agentService = null
+let _buildRuntimeContext = null
+export function injectAgentDeps({ agentService, buildRuntimeContext }) {
+  _agentService = agentService ?? null
+  _buildRuntimeContext = buildRuntimeContext ?? null
+}
 
 function defaultGetUserId(req) {
   try {
@@ -55,9 +62,7 @@ export function createChatRouter({
   executePlan = defaultExecutePlan,
   recordAgentEvent = defaultRecordAgentEvent,
   submitAdviceForReview = defaultSubmitAdviceForReview,
-  masterProcessQuery = defaultMasterProcessQuery,
-  agentService = null,
-  buildRuntimeContext = null
+  masterProcessQuery = defaultMasterProcessQuery
 } = {}) {
   const router = Router()
 
@@ -109,10 +114,11 @@ export function createChatRouter({
       const identity = userId ? `user-${userId}` : deviceId
 
       // ---- LangGraph Agent 接入（灰度兼容）----
-      if (agentService && buildRuntimeContext && userId) {
-        const runtime = buildRuntimeContext({ req, userId, isAdmin: false })
+      if (_agentService && _buildRuntimeContext && userId) {
+        req.sessionId = req.body.sessionId || req.headers['x-session-id'] || req.deviceId
+        const runtime = _buildRuntimeContext({ req, userId, isAdmin: false })
         const state = { messages: [{ role: 'user', content: message }] }
-        const output = await agentService.handle(state, runtime)
+        const output = await _agentService.handle(state, runtime)
         if (output.data?.source && output.data.source !== 'legacy') {
           await appendTurn(identity, message, output.data?.message || '').catch(error => {
             console.warn('[Chat] LangGraph context append skipped:', error.message)

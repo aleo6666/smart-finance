@@ -40,6 +40,7 @@ export function createAgentService({
           }
         }
       } catch (error) {
+        console.warn('[Agent] graph invoke failed:', error.message)
         const isWriteIntent = String(state.intentType ?? '').includes('record')
         if (isWriteIntent) {
           return {

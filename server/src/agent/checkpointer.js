@@ -1,10 +1,11 @@
+import { MemorySaver } from '@langchain/langgraph'
 import { ShallowRedisSaver } from '@langchain/langgraph-checkpoint-redis/shallow'
 import config from '../config.js'
 import { getRedisUrl } from '../redis.js'
 
 export class CheckpointerSetupError extends Error {
   constructor() {
-    super('Redis checkpoint storage is unavailable')
+    super('Redis checkpoint storage is unavailable, falling back to memory')
     this.name = 'CheckpointerSetupError'
     this.code = 'ERR_CHECKPOINTER_SETUP'
     this.statusCode = 503
@@ -12,40 +13,30 @@ export class CheckpointerSetupError extends Error {
   }
 }
 
-function positiveInteger(value, name) {
-  if (!Number.isInteger(value) || value <= 0) {
-    throw new TypeError(`${name} must be a positive integer`)
-  }
-  return value
-}
-
 export async function createCheckpointer(
   redisUrl = getRedisUrl(),
   {
-    sessionTtlSeconds = config.memory.sessionTtlSeconds,
-    ttlSeconds,
-    saverFactory = ShallowRedisSaver
+    sessionTtlSeconds = config.memory?.sessionTtlSeconds ?? 1800
   } = {}
 ) {
-  const lifetimeSeconds = positiveInteger(
-    ttlSeconds ?? sessionTtlSeconds,
-    'sessionTtlSeconds'
-  )
-  const ttlConfig = {
-    defaultTTL: lifetimeSeconds / 60,
-    refreshOnRead: true
-  }
-
   try {
-    const saver = typeof saverFactory?.fromUrl === 'function'
-      ? await saverFactory.fromUrl(redisUrl, ttlConfig)
-      : await saverFactory(redisUrl, ttlConfig)
+    const saver = await ShallowRedisSaver.fromUrl(redisUrl, {
+      defaultTTL: Math.ceil(sessionTtlSeconds / 60),
+      refreshOnRead: true
+    })
 
-    // v1.0.10 initializes its indexes inside fromUrl(). This conditional also
-    // supports compatible injected factories that expose an explicit setup.
-    if (typeof saver?.setup === 'function') await saver.setup()
-    return saver
+    // Index creation may fail on Redis without RediSearch module
+    if (typeof saver?.setup === 'function') {
+      try {
+        await saver.setup()
+      } catch {
+        console.warn('[Checkpointer] index setup skipped (RediSearch unavailable), using MemorySaver fallback')
+        return { saver: new MemorySaver(), redisBacked: false }
+      }
+    }
+    return { saver, redisBacked: true }
   } catch {
-    throw new CheckpointerSetupError()
+    console.warn('[Checkpointer] Redis unavailable, using MemorySaver fallback')
+    return { saver: new MemorySaver(), redisBacked: false }
   }
 }

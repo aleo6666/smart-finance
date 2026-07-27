@@ -1,16 +1,15 @@
-FROM node:22-alpine
-
-RUN apk add --no-cache python3 make g++ pkgconfig \
-    cairo-dev pango-dev pixman-dev giflib-dev jpeg-dev freetype-dev
+FROM node:22.21.1-alpine
 
 WORKDIR /app
 
-# Use Chinese mirrors for node-gyp headers (GFW workaround)
-ENV NODEJS_ORG_MIRROR=https://npmmirror.com/mirrors/node
+# Alpine mirror for China (GFW workaround)
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories && \
+    (apk add --no-cache python3 make g++ pkgconfig \
+    cairo-dev pango-dev pixman-dev giflib-dev jpeg-dev freetype-dev || true)
 
 COPY package*.json ./
 RUN npm config set registry https://registry.npmmirror.com && \
-    npm ci --only=production
+    npm ci --omit=dev
 
 COPY src/ ./src/
 

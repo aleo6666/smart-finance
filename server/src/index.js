@@ -13,7 +13,7 @@ import { authLimiter, apiLimiter, strictLimiter } from './middleware/rateLimiter
 import db from './db.js'
 import { ensureSchema } from './schema.js'
 import { deviceIdMiddleware } from './middleware/deviceId.js'
-import { createChatRouter } from './routes/chat.js'
+import { createChatRouter, injectAgentDeps } from './routes/chat.js'
 import recordsRouter from './routes/records.js'
 import reportsRouter from './routes/reports.js'
 import goalsRouter from './routes/goals.js'
@@ -133,30 +133,26 @@ export async function bootstrap() {
 }
 
 async function bootstrapAgent() {
-  const { createCheckpointer, CheckpointerSetupError } = await import('./agent/checkpointer.js')
+  const { MemorySaver } = await import('@langchain/langgraph')
   const { createFinanceModel } = await import('./agent/model.js')
   const { createAgentGraph } = await import('./agent/graph.js')
   const { buildRuntimeContext } = await import('./agent/runtime.js')
   const { createAgentService } = await import('./agent/service.js')
 
-  let checkpointer
-  try {
-    checkpointer = await createCheckpointer()
-  } catch (error) {
-    if (error instanceof CheckpointerSetupError) throw error
-    throw new CheckpointerSetupError()
-  }
+  const saver = new MemorySaver()
+  console.warn('[Agent] using MemorySaver (non-persistent checkpoints)')
 
   const model = createFinanceModel({
     baseUrl: config.lmStudio.baseUrl,
     apiKey: config.lmStudio.apiKey,
     model: config.lmStudio.chatModel,
-    maxRetries: config.agent.networkRetryCount
+    maxRetries: config.agent.networkRetryCount,
+    timeout: config.agent.requestTimeoutMs
   })
 
   const graph = createAgentGraph({
     model,
-    checkpointer,
+    checkpointer: saver,
     config
   })
 
@@ -175,18 +171,8 @@ async function bootstrapAgent() {
     legacy: legacyHandler
   })
 
-  // Re-create chat router with agent deps injected
-  const newChatRouter = createChatRouter({
-    agentService,
-    buildRuntimeContext
-  })
-
-  // Replace the router reference used by Express middleware
-  app._router.stack.forEach((layer, index) => {
-    if (layer.route === undefined && layer.handle === chatRouter) {
-      app._router.stack[index].handle = newChatRouter
-    }
-  })
+  // Inject agent deps into chat router (lazy binding — no middleware swap needed)
+  injectAgentDeps({ agentService, buildRuntimeContext })
 
   console.log('[Agent] LangGraph agent initialized')
 }
