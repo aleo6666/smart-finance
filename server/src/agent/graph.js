@@ -50,6 +50,53 @@ const DOMAIN_TOOL_NAMES = new Set([
   'check_budget'
 ])
 
+const TEXT_TOOL_ALIASES = {
+  get_bills: 'query_transactions',
+  add_bill: 'record_transaction',
+  get_budgets: 'check_budget',
+  calculate_budget: 'check_budget'
+}
+
+function parseTextToolCalls(content, knownNames) {
+  if (typeof content !== 'string') return { text: content, toolCalls: [] }
+
+  const blocks = []
+  const fenceRe = /```json\s*([\s\S]*?)\s*```/g
+  let match
+  while ((match = fenceRe.exec(content)) !== null) {
+    blocks.push({ raw: match[0], json: match[1] })
+  }
+
+  if (blocks.length === 0) {
+    const bareRe = /\{[^}]*"tool"\s*:\s*"[^"]*"[^}]*\}/g
+    while ((match = bareRe.exec(content)) !== null) {
+      blocks.push({ raw: match[0], json: match[0] })
+    }
+  }
+
+  const toolCalls = []
+  let cleanContent = content
+  for (const block of blocks) {
+    try {
+      const parsed = JSON.parse(block.json.trim())
+      if (parsed && typeof parsed.tool === 'string') {
+        const aliasName = parsed.tool
+        const resolvedName = TEXT_TOOL_ALIASES[aliasName] || aliasName
+        if (knownNames.has(resolvedName)) {
+          toolCalls.push({
+            id: `text_${Math.random().toString(36).slice(2, 10)}`,
+            name: resolvedName,
+            args: parsed.arguments || {}
+          })
+          cleanContent = cleanContent.replace(block.raw, '')
+        }
+      }
+    } catch { /* ignore unparseable */ }
+  }
+
+  return { text: cleanContent.trim(), toolCalls }
+}
+
 function safeError(code, source) {
   return { code, source, fatal: true }
 }
@@ -463,6 +510,20 @@ export function createAgentGraph({
         graphConfig
       )
       if (!isAIMessage(result)) throw new TypeError('invalid model response')
+
+      // Parse text-format tool calls (deepseek-v4-pro doesn't support native function calling)
+      if ((!result.tool_calls || result.tool_calls.length === 0) && typeof result.content === 'string') {
+        const parsed = parseTextToolCalls(result.content, toolsByName)
+        if (parsed.toolCalls.length > 0) {
+          const textContent = parsed.text || null
+          const cleaned = new AIMessage({
+            content: textContent,
+            tool_calls: parsed.toolCalls
+          })
+          return { messages: [cleaned] }
+        }
+      }
+
       return { messages: [result] }
     } catch {
       return {
