@@ -4,6 +4,17 @@ import config from './config.js'
 let redisClient
 const memoryStore = new Map()
 
+export function getRedisUrl(configOverride = config) {
+  const redisConfig = configOverride.redis || configOverride
+  const password = redisConfig.password
+    ? `:${encodeURIComponent(String(redisConfig.password)).replace(
+        /[!'()*]/g,
+        character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+      )}@`
+    : ''
+  return `redis://${password}${redisConfig.host}:${redisConfig.port}`
+}
+
 export function getRedisClient() {
   if (redisClient) return redisClient
 
@@ -21,6 +32,36 @@ export function getRedisClient() {
 
   return redisClient
 }
+
+export function createRedisOnlyCache({ getClient = getRedisClient } = {}) {
+  const connect = async () => {
+    const redis = getClient()
+    if (redis.status === 'wait') await redis.connect()
+    return redis
+  }
+
+  return {
+    async set(key, value, ttlSeconds) {
+      const redis = await connect()
+      const payload = JSON.stringify(value)
+      if (ttlSeconds) await redis.set(key, payload, 'EX', ttlSeconds)
+      else await redis.set(key, payload)
+    },
+
+    async get(key) {
+      const redis = await connect()
+      const payload = await redis.get(key)
+      return payload ? JSON.parse(payload) : null
+    },
+
+    async del(key) {
+      const redis = await connect()
+      await redis.del(key)
+    }
+  }
+}
+
+export const agentRedisCache = createRedisOnlyCache()
 
 export async function cacheSet(key, value, ttlSeconds) {
   const payload = JSON.stringify(value)

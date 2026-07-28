@@ -10,6 +10,7 @@
  */
 
 import db from '../../db.js'
+import config from '../../config.js'
 import { parseFile, parseCsvFile, parseCsvContent, calculateSimilarity } from './billParser.js'
 import { embedRecord, deleteRecordVector } from '../vectorMemory.js'
 
@@ -156,7 +157,12 @@ async function detectDuplicatesForRecords(userId, newRecords) {
  * @param {number} userId - 用户 ID
  * @param {Array<number>} selectedIds - 选中的明细 ID（不传则导入所有 selected=1 的）
  */
-async function confirmImport({ batchId, userId, selectedIds = null }) {
+async function confirmImport({
+  batchId,
+  userId,
+  selectedIds = null,
+  billVectorWriteEnabled = config.agent.billVectorWriteEnabled
+}) {
   const batch = await db('import_batches')
     .where({ id: batchId, user_id: userId })
     .first()
@@ -218,10 +224,12 @@ async function confirmImport({ batchId, userId, selectedIds = null }) {
       })
   })
 
-  // 异步同步向量索引（不阻塞）
-  syncVectorsAsync(importedRecordIds).catch(err => {
-    console.warn('[Import] 向量同步失败:', err.message)
-  })
+  // 异步同步向量索引（不阻塞，受开关控制）
+  if (billVectorWriteEnabled) {
+    syncVectorsAsync(importedRecordIds).catch(err => {
+      console.warn('[Import] 向量同步失败:', err.message)
+    })
+  }
 
   return {
     success: true,
@@ -349,7 +357,11 @@ async function updateRecord({ batchId, recordId, userId, updates }) {
 /**
  * 回滚某个导入批次（24小时内可回滚）
  */
-async function rollbackBatch({ batchId, userId }) {
+async function rollbackBatch({
+  batchId,
+  userId,
+  billVectorWriteEnabled = config.agent.billVectorWriteEnabled
+}) {
   const batch = await db('import_batches')
     .where({ id: batchId, user_id: userId })
     .first()
@@ -393,8 +405,10 @@ async function rollbackBatch({ batchId, userId }) {
   })
 
   // 删除向量索引
-  for (const id of recordIds) {
-    deleteRecordVector(id).catch(() => {})
+  if (billVectorWriteEnabled) {
+    for (const id of recordIds) {
+      deleteRecordVector(id).catch(() => {})
+    }
   }
 
   return {

@@ -44,7 +44,8 @@ test('recordFromPlannerTask inserts record and embeds vector', async () => {
     repository,
     vectorMemory: { embedRecord: async record => embedded.push(record) },
     monitorAgent: { checkBudgetAfterRecord: async input => monitored.push(input) },
-    observeService: { recordAgentEvent: async event => observed.push(event) }
+    observeService: { recordAgentEvent: async event => observed.push(event) },
+    billVectorWriteEnabled: true
   })
 
   assert.equal(result.recordIds[0], 42)
@@ -79,7 +80,8 @@ test('recordFromPlannerTask returns recordId and vectorIndexed false when embedR
       embedRecord: async () => { throw new Error('LM Studio unreachable') }
     },
     monitorAgent: { checkBudgetAfterRecord: async () => ({}) },
-    observeService: { recordAgentEvent: async event => observed.push(event) }
+    observeService: { recordAgentEvent: async event => observed.push(event) },
+    billVectorWriteEnabled: true
   })
 
   assert.equal(result.recordIds[0], 99)

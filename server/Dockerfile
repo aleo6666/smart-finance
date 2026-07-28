@@ -1,21 +1,14 @@
-FROM node:18-alpine
-
-RUN apk add --no-cache python3 make g++ pkgconfig \
-    cairo-dev pango-dev pixman-dev giflib-dev jpeg-dev freetype-dev
+FROM smart-finance-backend:latest
 
 WORKDIR /app
 
-# Use Chinese mirrors for node-gyp headers (GFW workaround)
-ENV NODEJS_ORG_MIRROR=https://npmmirror.com/mirrors/node
-
 COPY package*.json ./
-RUN npm config set registry https://registry.npmmirror.com && \
-    npm ci --only=production
+RUN rm -rf node_modules && \
+    npm config set registry https://registry.npmmirror.com && \
+    npm ci --omit=dev --ignore-engines
 
 COPY src/ ./src/
-
 RUN mkdir -p uploads
 
 EXPOSE 3000
-
 CMD ["node", "src/index.js"]

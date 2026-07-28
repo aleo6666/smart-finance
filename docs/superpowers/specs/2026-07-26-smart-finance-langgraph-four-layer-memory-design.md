@@ -1,7 +1,7 @@
 # Smart Finance：LangGraph Agent 与四层 Memory 设计
 
 日期：2026-07-26
-状态：设计已确认，文档待审
+状态：设计已确认，实施已完成（剩余 Task 14-17 补全），参见实施计划 `docs/superpowers/plans/2026-07-26-smart-finance-langgraph-four-layer-memory-implementation.md`
 适用项目：`E:\Smart Finance`
 
 ## 1. 目标

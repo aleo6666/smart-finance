@@ -40,7 +40,8 @@ export async function recordFromPlannerTask({
   repository = createRecordRepository(),
   vectorMemory = defaultVectorMemory,
   monitorAgent = defaultMonitorAgent,
-  observeService = defaultObserveService
+  observeService = defaultObserveService,
+  billVectorWriteEnabled = false
 }) {
   const started = Date.now()
 
@@ -49,11 +50,13 @@ export async function recordFromPlannerTask({
     const saved = await repository.insertRecord(recordInput)
 
     let vectorIndexed = true
-    try {
-      await vectorMemory.embedRecord(saved)
-    } catch (error) {
-      console.warn(`[Recorder] vector embed skipped for record id=${saved.id}: ${error.message}`)
-      vectorIndexed = false
+    if (billVectorWriteEnabled) {
+      try {
+        await vectorMemory.embedRecord(saved)
+      } catch (error) {
+        console.warn(`[Recorder] vector embed skipped for record id=${saved.id}: ${error.message}`)
+        vectorIndexed = false
+      }
     }
 
     const monitorResult = await monitorAgent.checkBudgetAfterRecord({ record: saved })

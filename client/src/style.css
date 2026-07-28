@@ -605,14 +605,6 @@ body {
 }
 
 /* 提醒面板 */
-.sidebar-mask {
-  display: none;
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.35);
-  z-index: 150;
-}
-
 .panel-mask {
   position: fixed;
   inset: 0;
@@ -710,41 +702,47 @@ body {
     top: 0;
     bottom: 0;
     transform: translateX(-100%);
-    z-index: 200;
+    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
   }
 
   .sidebar.open {
     transform: translateX(0);
-    box-shadow: 4px 0 20px rgba(0,0,0,0.15);
   }
 
+  /* 侧边栏遮罩层 */
   .sidebar-mask {
-    display: block !important;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 99;
+    animation: fadeIn 0.2s ease;
   }
 
-  .topbar {
-    padding: 0 12px;
+  /* 移动端顶部今日支出 */
+  .mobile-today-expense {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin-left: 12px;
+  }
+
+  .mobile-today-expense .label {
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+
+  .mobile-today-expense .amount {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--primary);
   }
 
   .topbar .menu-btn {
     display: block;
   }
 
-  .topbar .page-title {
-    font-size: 15px;
-  }
-
-  .ledger-select {
-    display: none;
-  }
-
-  .user-tag {
-    font-size: 12px;
-    padding: 2px 6px;
-  }
-
   .message {
-    max-width: 92%;
+    max-width: 90%;
   }
 
   .chat-messages {
@@ -753,21 +751,11 @@ body {
   }
 
   .chat-input-area {
-    padding: 10px 12px;
-    padding-bottom: max(12px, env(safe-area-inset-bottom, 12px));
-  }
-
-  .chat-input-wrapper textarea {
-    font-size: 16px;
-  }
-
-  .report-panel {
     padding: 12px;
   }
 
   .report-grid {
     grid-template-columns: 1fr;
-    gap: 12px;
   }
 
   .stat-row {
@@ -775,54 +763,73 @@ body {
     gap: 6px;
   }
 
-  .stat-item {
-    padding: 10px 4px;
-  }
-
-  .stat-item .stat-value {
-    font-size: 16px;
-  }
-
+  .report-panel,
   .goal-panel {
     padding: 12px;
   }
 
-  .modal {
-    width: 95%;
-    padding: 20px;
+  /* 移动端隐藏用户标签文字，只显示头像 */
+  .user-tag {
+    padding: 4px 6px;
   }
 
+  .user-tag span:not(.btn-logout) {
+    display: none;
+  }
+
+  /* 移动端账本选择器变小 */
+  .ledger-select {
+    font-size: 12px;
+    padding: 4px 8px;
+    max-width: 100px;
+  }
+
+  /* 移动端提醒面板宽度自适应 */
   .reminder-panel {
-    width: 100vw;
-    max-height: 50vh;
-    right: 0;
-    left: 0;
+    width: calc(100vw - 20px);
+    right: 10px;
+    left: 10px;
+    max-width: none;
   }
 }
 
-@media (max-width: 400px) {
-  .stat-item .stat-value {
+/* 小屏幕优化（480px 以下） */
+@media (max-width: 480px) {
+  .topbar {
+    padding: 0 12px;
+    height: 52px;
+  }
+
+  .topbar .page-title {
+    font-size: 15px;
+  }
+
+  .mobile-today-expense .amount {
     font-size: 14px;
   }
 
+  .message .bubble {
+    font-size: 13px;
+    padding: 10px 14px;
+  }
+
+  .message .avatar {
+    width: 32px;
+    height: 32px;
+    font-size: 14px;
+  }
+
+  .quick-action {
+    font-size: 11px;
+    padding: 4px 10px;
+  }
+
+  .stat-item .stat-value {
+    font-size: 18px;
+  }
+
   .stat-item .stat-label {
-    font-size: 10px;
-  }
-
-  .chat-input-wrapper {
-    gap: 6px;
-  }
-
-  .btn-upload {
-    width: 36px;
-    height: 36px;
-    font-size: 16px;
-  }
-
-  .chat-input-wrapper button {
-    width: 36px;
-    height: 36px;
-    font-size: 16px;
+    font-size: 11px;
   }
 }
 

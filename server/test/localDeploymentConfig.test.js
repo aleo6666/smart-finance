@@ -8,6 +8,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const root = join(__dirname, '..', '..')
 
 const compose = readFileSync(join(root, 'docker-compose.yml'), 'utf-8')
+const dockerfile = readFileSync(join(root, 'server', 'Dockerfile'), 'utf-8')
+const serverPackage = JSON.parse(readFileSync(join(root, 'server', 'package.json'), 'utf-8'))
 const gitignore = readFileSync(join(root, '.gitignore'), 'utf-8')
 const envExample = existsSync(join(root, '.env.example'))
   ? readFileSync(join(root, '.env.example'), 'utf-8')
@@ -31,6 +33,14 @@ test('docker-compose has host.docker.internal for LM Studio access', () => {
 
 test('docker-compose does not mount finance.db', () => {
   assert.ok(!compose.includes('finance.db'), 'finance.db volume should be removed')
+})
+
+test('server Dockerfile uses Node 22', () => {
+  assert.match(dockerfile, /^FROM node:22-alpine$/m)
+})
+
+test('server package metadata requires Node 22', () => {
+  assert.equal(serverPackage.engines?.node, '>=22')
 })
 
 test('.gitignore includes .env.local', () => {

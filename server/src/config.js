@@ -15,6 +15,17 @@ function boundedNumber(value, fallback, min, max) {
   return Number.isFinite(parsed) ? Math.min(max, Math.max(min, parsed)) : fallback
 }
 
+function boundedInteger(value, fallback, min, max) {
+  if (value == null || String(value).trim() === '') return fallback
+  const parsed = Number(value)
+  return Number.isInteger(parsed) ? Math.min(max, Math.max(min, parsed)) : fallback
+}
+
+function booleanFromEnv(value, fallback = false) {
+  if (value === undefined) return fallback
+  return String(value).toLowerCase() === 'true'
+}
+
 function trimTrailingSlash(value) {
   return String(value).replace(/\/+$/, '')
 }
@@ -65,6 +76,43 @@ export function loadConfig(env = process.env) {
       collection: env.RAG_COLLECTION || 'finance_records_nomic_v1',
       topK: boundedNumber(env.RAG_TOP_K, 5, 1, 20),
       maxContextChars: boundedNumber(env.RAG_MAX_CONTEXT_CHARS, 6000, 1000, 20000)
+    },
+    agent: {
+      enabled: booleanFromEnv(env.ENABLE_LANGGRAPH_AGENT),
+      fourLayerMemory: booleanFromEnv(env.ENABLE_FOUR_LAYER_MEMORY),
+      adminSqlEnabled: booleanFromEnv(env.ENABLE_ADMIN_SQL_AGENT),
+      paddleOcrEnabled: booleanFromEnv(env.ENABLE_PADDLE_OCR),
+      qdrantKnowledgeEnabled: booleanFromEnv(env.ENABLE_QDRANT_KNOWLEDGE),
+      billVectorWriteEnabled: booleanFromEnv(env.ENABLE_BILL_VECTOR_WRITE),
+      rolloutPercent: boundedInteger(env.LANGGRAPH_ROLLOUT_PERCENT, 0, 0, 100),
+      maxToolCalls: boundedInteger(env.AGENT_MAX_TOOL_CALLS, 5, 1, 12),
+      recursionLimit: boundedInteger(env.AGENT_GRAPH_RECURSION_LIMIT, 12, 4, 30),
+      requestTimeoutMs: boundedInteger(env.AGENT_REQUEST_TIMEOUT_MS, 120000, 5000, 300000),
+      networkRetryCount: boundedInteger(env.AGENT_NETWORK_RETRY_COUNT, 2, 0, 2),
+      datasetTtlSeconds: boundedInteger(env.AGENT_DATASET_TTL_SECONDS, 300, 30, 1800),
+      confirmationTtlSeconds: boundedInteger(env.AGENT_CONFIRMATION_TTL_SECONDS, 1800, 60, 86400),
+      temperature: 0.1
+    },
+    memory: {
+      windowMaxMessages: boundedInteger(env.MEMORY_WINDOW_MAX_MESSAGES, 10, 2, 30),
+      windowMaxTokens: boundedInteger(env.MEMORY_WINDOW_MAX_TOKENS, 4000, 500, 12000),
+      sessionTtlSeconds: boundedInteger(env.MEMORY_SESSION_TTL_SECONDS, 1800, 60, 86400),
+      summaryTriggerMessages: boundedInteger(env.MEMORY_SUMMARY_TRIGGER_MESSAGES, 12, 4, 50),
+      summaryRetentionDays: boundedInteger(env.MEMORY_SUMMARY_RETENTION_DAYS, 30, 1, 365)
+    },
+    adminSql: {
+      host: env.ADMIN_SQL_HOST || env.DB_HOST || 'localhost',
+      port: boundedInteger(env.ADMIN_SQL_PORT || env.DB_PORT, 3306, 1, 65535),
+      name: env.ADMIN_SQL_DB_NAME || env.DB_NAME || 'smart_finance',
+      user: env.ADMIN_SQL_DB_USER || '',
+      password: env.ADMIN_SQL_DB_PASSWORD || '',
+      maxRows: boundedInteger(env.ADMIN_SQL_MAX_ROWS, 200, 1, 1000),
+      timeoutMs: boundedInteger(env.ADMIN_SQL_TIMEOUT_MS, 3000, 500, 10000)
+    },
+    paddleOcr: {
+      accessToken: env.PADDLEOCR_ACCESS_TOKEN || '',
+      requestTimeoutMs: boundedInteger(env.PADDLEOCR_REQUEST_TIMEOUT_MS, 300000, 5000, 600000),
+      pollTimeoutMs: boundedInteger(env.PADDLEOCR_POLL_TIMEOUT_MS, 600000, 10000, 900000)
     },
     auth: {
       jwtSecret: env.JWT_SECRET || undefined

@@ -3,16 +3,26 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
-    "test": "node --test",
+    "test": "node --test --test-force-exit --import ./test/setup.js \"test/**/*.test.js\"",
+    "test:agent": "node --test --test-force-exit \"test/agent/*.test.js\"",
     "migrate:sqlite": "node src/scripts/migrate-sqlite-to-mysql.js",
     "reindex:rag": "node src/scripts/reindex-rag.js",
-    "smoke:local": "node src/scripts/smoke-local.js"
+    "smoke:local": "node src/scripts/smoke-local.js",
+    "vectors:delete-legacy": "node src/scripts/delete-legacy-bill-vectors.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
+    "@langchain/core": "1.2.3",
+    "@langchain/langgraph": "1.4.8",
+    "@langchain/langgraph-checkpoint-redis": "1.0.10",
+    "@langchain/openai": "1.5.5",
+    "@paddleocr/api-sdk": "0.2.3",
     "@qdrant/js-client-rest": "^1.18.0",
     "adm-zip": "^0.6.0",
     "bcryptjs": "^3.0.3",
@@ -26,11 +36,14 @@
     "ioredis": "^5.11.1",
     "jsonwebtoken": "^9.0.3",
     "knex": "^3.3.0",
+    "langchain": "1.5.4",
     "multer": "^2.1.1",
     "mysql2": "^3.23.0",
     "node-cron": "^4.2.1",
+    "node-sql-parser": "5.4.0",
     "pdfkit": "^0.19.1",
     "qrcode": "^1.5.4",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "zod": "4.4.3"
   }
 }

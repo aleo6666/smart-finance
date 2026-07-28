@@ -28,6 +28,14 @@ import { recordAgentEvent as defaultRecordAgentEvent } from '../services/observe
 import { submitAdviceForReview as defaultSubmitAdviceForReview } from '../services/adviceReview.js'
 import { processQuery as defaultMasterProcessQuery } from '../services/masterAgent.js'
 
+// Lazily set during agent bootstrap — avoids import-time dependency on agent modules
+let _agentService = null
+let _buildRuntimeContext = null
+export function injectAgentDeps({ agentService, buildRuntimeContext }) {
+  _agentService = agentService ?? null
+  _buildRuntimeContext = buildRuntimeContext ?? null
+}
+
 function defaultGetUserId(req) {
   try {
     const h = req.headers.authorization
@@ -105,42 +113,54 @@ export function createChatRouter({
     try {
       const identity = userId ? `user-${userId}` : deviceId
 
-      const use3Agent = req.body.use3Agent === true || req.query.use3Agent === 'true'
-
-      const result = await processMessage(identity, message)
-
-      // ---- 3 Agent 路由：查询/分析/建议走主控 Agent，记账保持原链路 ----
-      if (use3Agent && userId && ['query', 'advice', 'chat'].includes(result.intent)) {
-        const started = Date.now()
-        try {
-          const masterResult = await masterProcessQuery({ userId, message })
-
-          recordAgentEvent({
-            userId,
-            callType: 'master_agent',
-            latencyMs: Date.now() - started,
-            success: masterResult.success
-          }).catch(() => {})
-
-          await appendTurn(identity, message, masterResult.answer || '').catch(error => {
-            console.warn('[Chat] 3Agent context append skipped:', error.message)
+      // ---- LangGraph Agent 接入（灰度兼容）----
+      if (_agentService && _buildRuntimeContext && userId) {
+        req.sessionId = req.body.sessionId || req.headers['x-session-id'] || req.deviceId
+        const runtime = _buildRuntimeContext({ req, userId, isAdmin: false })
+        const state = { messages: [{ role: 'user', content: message }] }
+        const output = await _agentService.handle(state, runtime)
+        if (output.data?.source && output.data.source !== 'legacy') {
+          await appendTurn(identity, message, output.data?.message || '').catch(error => {
+            console.warn('[Chat] LangGraph context append skipped:', error.message)
           })
-
-          return res.json({
-            success: masterResult.success,
-            data: {
-              intent: result.intent,
-              message: masterResult.answer,
-              agent: '3agent',
-              pattern: masterResult.pattern,
-              execution: masterResult.execution,
-              error: masterResult.error
-            }
-          })
-        } catch (error) {
-          console.warn('[Chat] 3Agent skipped:', error.message)
+          return res.json(output)
         }
       }
+
+      // ---- 极简 3 Agent 架构（主从协同）----
+      // 通过 use3Agent 参数启用新架构，用于灰度验证
+      const use3Agent = req.body.use3Agent === true || req.query.use3Agent === 'true'
+      if (use3Agent && userId) {
+        const started = Date.now()
+        const masterResult = await masterProcessQuery({ userId, message })
+
+        // 记录到观测系统
+        recordAgentEvent({
+          userId,
+          callType: 'master_agent',
+          latencyMs: Date.now() - started,
+          success: masterResult.success
+        }).catch(() => {})
+
+        // 保存对话上下文
+        await appendTurn(identity, message, masterResult.answer || '').catch(error => {
+          console.warn('[Chat] 3Agent context append skipped:', error.message)
+        })
+
+        return res.json({
+          success: masterResult.success,
+          data: {
+            intent: 'query',
+            message: masterResult.answer,
+            agent: '3agent',
+            pattern: masterResult.pattern,
+            execution: masterResult.execution,
+            error: masterResult.error
+          }
+        })
+      }
+
+      const result = await processMessage(identity, message)
 
       // ---- 编排链路：复合意图走多步编排 ----
       // 放宽：query/advice/chat 都允许，只要 compoundIntent 命中且已登录

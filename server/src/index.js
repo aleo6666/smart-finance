@@ -1,3 +1,11 @@
+import { randomUUID as nodeRandomUUID, webcrypto } from 'node:crypto'
+
+// Node 18 compat: langchain internals need globalThis.crypto with randomUUID
+if (!globalThis.crypto) {
+  webcrypto.randomUUID = nodeRandomUUID
+  globalThis.crypto = webcrypto
+}
+
 import dotenv from 'dotenv'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
@@ -13,7 +21,7 @@ import { authLimiter, apiLimiter, strictLimiter } from './middleware/rateLimiter
 import db from './db.js'
 import { ensureSchema } from './schema.js'
 import { deviceIdMiddleware } from './middleware/deviceId.js'
-import chatRouter from './routes/chat.js'
+import { createChatRouter, injectAgentDeps } from './routes/chat.js'
 import recordsRouter from './routes/records.js'
 import reportsRouter from './routes/reports.js'
 import goalsRouter from './routes/goals.js'
@@ -36,6 +44,8 @@ import defaultLmStudioClient from './services/lmStudioClient.js'
 import getRedisClient from './redis.js'
 import { createDefaultChecks } from './services/healthService.js'
 import { createHealthRouter } from './routes/health.js'
+
+const chatRouter = createChatRouter()
 
 const app = express()
 
@@ -105,10 +115,74 @@ export async function bootstrap() {
     }
   })
 
+  // LangGraph Agent bootstrapping (before-knowledge vector init)
+  if (config.agent.qdrantKnowledgeEnabled) {
+    try {
+      const { initKnowledgeCollection } = await import('./services/knowledgeVector.js')
+      await initKnowledgeCollection({ embeddingClient: defaultLmStudioClient })
+      console.log('[Knowledge] collection initialized')
+    } catch (error) {
+      console.warn('[Knowledge] init skipped:', error.message)
+    }
+  }
+
+  if (config.agent.enabled) {
+    try {
+      await bootstrapAgent()
+    } catch (error) {
+      console.warn('[Agent] bootstrap skipped:', error.message)
+    }
+  }
+
   return app.listen(config.server.port, '0.0.0.0', () => {
     console.log(`Smart Finance API started: http://localhost:${config.server.port}`)
     startScheduler()
   })
+}
+
+async function bootstrapAgent() {
+  const { MemorySaver } = await import('@langchain/langgraph')
+  const { createFinanceModel } = await import('./agent/model.js')
+  const { createAgentGraph } = await import('./agent/graph.js')
+  const { buildRuntimeContext } = await import('./agent/runtime.js')
+  const { createAgentService } = await import('./agent/service.js')
+
+  const saver = new MemorySaver()
+  console.warn('[Agent] using MemorySaver (non-persistent checkpoints)')
+
+  const model = createFinanceModel({
+    baseUrl: config.lmStudio.baseUrl,
+    apiKey: config.lmStudio.apiKey,
+    model: config.lmStudio.chatModel,
+    maxRetries: config.agent.networkRetryCount,
+    timeout: config.agent.requestTimeoutMs
+  })
+
+  const graph = createAgentGraph({
+    model,
+    checkpointer: saver,
+    config
+  })
+
+  const legacyHandler = async (state, runtime) => ({
+    success: true,
+    data: {
+      intent: 'chat',
+      message: '',
+      source: 'legacy'
+    }
+  })
+
+  const agentService = createAgentService({
+    config,
+    graph,
+    legacy: legacyHandler
+  })
+
+  // Inject agent deps into chat router (lazy binding — no middleware swap needed)
+  injectAgentDeps({ agentService, buildRuntimeContext })
+
+  console.log('[Agent] LangGraph agent initialized')
 }
 
 if (process.env.NODE_ENV !== 'test') {
