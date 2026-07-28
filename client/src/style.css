@@ -702,10 +702,39 @@ body {
     top: 0;
     bottom: 0;
     transform: translateX(-100%);
+    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
   }
 
   .sidebar.open {
     transform: translateX(0);
+  }
+
+  /* 侧边栏遮罩层 */
+  .sidebar-mask {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 99;
+    animation: fadeIn 0.2s ease;
+  }
+
+  /* 移动端顶部今日支出 */
+  .mobile-today-expense {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin-left: 12px;
+  }
+
+  .mobile-today-expense .label {
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+
+  .mobile-today-expense .amount {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--primary);
   }
 
   .topbar .menu-btn {
@@ -716,6 +745,15 @@ body {
     max-width: 90%;
   }
 
+  .chat-messages {
+    padding: 12px;
+    gap: 12px;
+  }
+
+  .chat-input-area {
+    padding: 12px;
+  }
+
   .report-grid {
     grid-template-columns: 1fr;
   }
@@ -723,6 +761,75 @@ body {
   .stat-row {
     grid-template-columns: repeat(3, 1fr);
     gap: 6px;
+  }
+
+  .report-panel,
+  .goal-panel {
+    padding: 12px;
+  }
+
+  /* 移动端隐藏用户标签文字，只显示头像 */
+  .user-tag {
+    padding: 4px 6px;
+  }
+
+  .user-tag span:not(.btn-logout) {
+    display: none;
+  }
+
+  /* 移动端账本选择器变小 */
+  .ledger-select {
+    font-size: 12px;
+    padding: 4px 8px;
+    max-width: 100px;
+  }
+
+  /* 移动端提醒面板宽度自适应 */
+  .reminder-panel {
+    width: calc(100vw - 20px);
+    right: 10px;
+    left: 10px;
+    max-width: none;
+  }
+}
+
+/* 小屏幕优化（480px 以下） */
+@media (max-width: 480px) {
+  .topbar {
+    padding: 0 12px;
+    height: 52px;
+  }
+
+  .topbar .page-title {
+    font-size: 15px;
+  }
+
+  .mobile-today-expense .amount {
+    font-size: 14px;
+  }
+
+  .message .bubble {
+    font-size: 13px;
+    padding: 10px 14px;
+  }
+
+  .message .avatar {
+    width: 32px;
+    height: 32px;
+    font-size: 14px;
+  }
+
+  .quick-action {
+    font-size: 11px;
+    padding: 4px 10px;
+  }
+
+  .stat-item .stat-value {
+    font-size: 18px;
+  }
+
+  .stat-item .stat-label {
+    font-size: 11px;
   }
 }
 

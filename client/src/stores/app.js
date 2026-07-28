@@ -88,8 +88,14 @@ export const useAppStore = defineStore('app', {
           time: new Date()
         })
 
-        if (data.intent === 'record') {
-          await this.refreshToday()
+        // 记账成功后刷新今日和本月数据
+        const isRecordIntent = data.intent === 'record' || 
+                               data.source === 'langgraph' && (data.intent === 'record' || data.message?.includes('已记录') || data.message?.includes('记账'))
+        if (isRecordIntent) {
+          await Promise.all([
+            this.refreshToday(),
+            this.refreshMonthly()
+          ])
         }
 
         return data

@@ -57,6 +57,68 @@ const TEXT_TOOL_ALIASES = {
   calculate_budget: 'check_budget'
 }
 
+/**
+ * 简易 JSON 修复工具 - 处理模型输出的常见 JSON 格式问题
+ * 处理场景：
+ * 1. 单引号 → 双引号
+ * 2. 缺少引号的键名
+ * 3. 多余的尾随逗号
+ * 4. 单行注释 //
+ * 5. 未转义的换行符
+ */
+function jsonRepair(input) {
+  if (typeof input !== 'string') return input
+  let str = input.trim()
+  if (!str) return str
+
+  try {
+    // 先尝试直接解析
+    JSON.parse(str)
+    return str
+  } catch { /* 继续修复 */ }
+
+  // 1. 移除单行注释（不在字符串内的 // 注释）
+  str = str.replace(/\/\/[^\n\r]*/g, '')
+
+  // 2. 移除多行注释（不在字符串内的 /* */ 注释）
+  str = str.replace(/\/\*[\s\S]*?\*\//g, '')
+
+  // 3. 处理单引号 → 双引号（简单处理，不处理嵌套情况）
+  // 先把双引号替换成占位符
+  const placeholders = []
+  let placeholderIndex = 0
+  str = str.replace(/"([^"\\]|\\.)*"/g, match => {
+    placeholders.push(match)
+    return `__DOUBLE_QUOTE_${placeholderIndex++}__`
+  })
+  // 把单引号替换成双引号
+  str = str.replace(/'/g, '"')
+  // 还原双引号
+  placeholders.forEach((p, i) => {
+    str = str.replace(`__DOUBLE_QUOTE_${i}__`, p)
+  })
+
+  // 4. 给没有引号的键名加引号（简单处理：{ key: value } → { "key": value }）
+  str = str.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":')
+
+  // 5. 移除尾随逗号（在 } 或 ] 之前的逗号）
+  str = str.replace(/,(\s*[}\]])/g, '$1')
+
+  // 6. 处理未转义的换行符（在字符串内的换行）
+  // 这个比较复杂，简单处理：把字符串内的换行替换成 \n
+  // 先尝试直接解析，如果还不行就跳过这个步骤
+
+  try {
+    JSON.parse(str)
+    return str
+  } catch { /* 继续尝试其他修复 */ }
+
+  // 7. 处理数字开头的 0（如 0123 → 123）- 简单跳过，不处理
+
+  // 如果修复失败，返回原始字符串
+  return input
+}
+
 function parseTextToolCalls(content, knownNames) {
   if (typeof content !== 'string') return { text: content, toolCalls: [] }
 
@@ -119,21 +181,29 @@ function normalizeArgs(args) {
   const toolCalls = []
   let cleanContent = content
   for (const block of blocks) {
+    let parsed = null
     try {
-      const parsed = JSON.parse(block.json.trim())
-      if (parsed && (typeof parsed.tool === 'string' || hasQueryParams(parsed))) {
-        const aliasName = parsed.tool || guessToolByParams(parsed)
-        const resolvedName = TEXT_TOOL_ALIASES[aliasName] || aliasName
-        if (resolvedName && knownNames.has(resolvedName)) {
-          toolCalls.push({
-            id: `text_${Math.random().toString(36).slice(2, 10)}`,
-            name: resolvedName,
-            args: normalizeArgs(parsed.arguments || parsed.params || parsed)
-          })
-          cleanContent = cleanContent.replace(block.raw, '')
-        }
+      parsed = JSON.parse(block.json.trim())
+    } catch {
+      // 尝试修复 JSON
+      try {
+        const repaired = jsonRepair(block.json.trim())
+        parsed = JSON.parse(repaired)
+      } catch { /* 修复失败，跳过 */ }
+    }
+
+    if (parsed && (typeof parsed.tool === 'string' || hasQueryParams(parsed))) {
+      const aliasName = parsed.tool || guessToolByParams(parsed)
+      const resolvedName = TEXT_TOOL_ALIASES[aliasName] || aliasName
+      if (resolvedName && knownNames.has(resolvedName)) {
+        toolCalls.push({
+          id: `text_${Math.random().toString(36).slice(2, 10)}`,
+          name: resolvedName,
+          args: normalizeArgs(parsed.arguments || parsed.params || parsed)
+        })
+        cleanContent = cleanContent.replace(block.raw, '')
       }
-    } catch { /* ignore unparseable */ }
+    }
   }
 
   return { text: cleanContent.trim(), toolCalls }
@@ -141,6 +211,17 @@ function normalizeArgs(args) {
 
 function safeError(code, source) {
   return { code, source, fatal: true }
+}
+
+function getErrorMessage(code) {
+  const messages = {
+    'INVALID_TOOL_ARGUMENTS': '工具参数格式不正确，请检查参数名称和类型是否正确，使用驼峰命名（如 startDate）',
+    'DATASET_SCOPE_REJECTED': '数据集引用无效，请先调用 query_transactions 获取数据集引用',
+    'UNKNOWN_TOOL': '未知工具，请使用已有的工具',
+    'TRUSTED_ARGUMENT_REJECTED': '参数包含受信任字段，已拒绝',
+    'TOOL_CALL_LIMIT': '工具调用次数超过限制'
+  }
+  return messages[code] || '工具调用失败，请重试'
 }
 
 function normalizeNodeResult(value) {
@@ -518,7 +599,42 @@ export function createAgentGraph({
 
   const validateToolCall = async (state, graphConfig) => {
     const result = await baseValidateToolCall(state, graphConfig)
-    if ((result.errors ?? []).some(item => item?.fatal === true)) return result
+    const errors = result.errors ?? []
+    const fatalErrors = errors.filter(item => item?.fatal === true)
+
+    // 如果有错误，且不是不可重试的错误，则把错误信息返回给模型，让它重试
+    if (fatalErrors.length > 0) {
+      const lastCalls = toolCallsFromLastMessage(state)
+      const retryableErrors = fatalErrors.filter(e =>
+        e.code === 'INVALID_TOOL_ARGUMENTS' ||
+        e.code === 'DATASET_SCOPE_REJECTED'
+      )
+
+      // 只有可重试的错误才重试
+      if (retryableErrors.length > 0 && lastCalls.length > 0) {
+        // 生成错误的 tool message，让模型看到错误信息
+        const errorMessages = lastCalls.map(call => toolMessage({
+          id: call.id,
+          name: call.name,
+          value: {
+            status: 'error',
+            error: {
+              code: retryableErrors[0].code,
+              message: getErrorMessage(retryableErrors[0].code)
+            }
+          }
+        }))
+
+        return {
+          messages: errorMessages,
+          toolCallCount: result.toolCallCount ?? state.toolCallCount ?? 0
+        }
+      }
+
+      // 不可重试的错误，直接返回
+      return result
+    }
+
     if (
       toolCallsFromLastMessage(state).some(call =>
         adminToolNames.has(call?.name)
@@ -803,6 +919,11 @@ export function createAgentGraph({
       : 'finalize_response'
   }
   const routeValidation = state => {
+    const lastMessage = state.messages?.at(-1)
+    // 如果最后一条消息是 tool message（说明是验证错误返回的，可重试），则回到 call_model
+    if (lastMessage?._getType?.() === 'tool' && (state.errors ?? []).length === 0) {
+      return 'call_model'
+    }
     if ((state.errors ?? []).some(item => item?.fatal === true)) {
       return 'finalize_response'
     }

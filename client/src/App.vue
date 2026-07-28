@@ -44,6 +44,13 @@
       <div class="topbar">
         <button class="menu-btn" @click="store.toggleSidebar()">☰</button>
         <span class="page-title">{{ pageTitle }}</span>
+        
+        <!-- 移动端今日支出（只在小屏幕显示） -->
+        <div class="mobile-today-expense" v-if="store.todayExpense !== null">
+          <span class="label">今日</span>
+          <span class="amount">¥{{ store.todayExpense.toFixed(2) }}</span>
+        </div>
+        
         <div style="flex:1"></div>
 
         <select v-if="store.isLoggedIn && store.ledgers.length > 0" class="ledger-select"
@@ -86,6 +93,9 @@
       <router-view />
     </div>
 
+    <!-- 侧边栏遮罩层（移动端） -->
+    <div v-if="store.sidebarOpen" class="sidebar-mask" @click="store.toggleSidebar()"></div>
+    
     <div v-if="store.showReminderPanel" class="panel-mask" @click="store.showReminderPanel = false"></div>
 
     <!-- 反馈弹窗 -->
@@ -128,6 +138,11 @@ onMounted(async () => {
     store.refreshToday()
     store.refreshMonthly()
     store.refreshReminders()
+  }
+
+  // 移动端默认关闭侧边栏
+  if (window.innerWidth <= 768) {
+    store.sidebarOpen = false
   }
 })
 </script>
