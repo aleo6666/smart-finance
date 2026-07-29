@@ -192,8 +192,11 @@ async function loadAll() {
     // 关键数据：报告 + 记录，10s 超时
     const [rRes, recRes] = await Promise.race([
       Promise.all([
-        api.getReportTimerange(activePeriod.value),
-        api.getRecords({ limit: 50 }),
+        api.getReportTimerange(activePeriod.value, store.selectedLedgerId),
+        api.getRecords({
+          limit: 50,
+          ...(store.selectedLedgerId ? { ledgerId: store.selectedLedgerId } : {})
+        }),
         store.refreshReminderHighlights()
       ]),
       new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000))
@@ -229,6 +232,10 @@ watch([hasCategories, hasTrends], async ([cats, trends]) => {
   await nextTick()
   if (cats) renderPie()
   if (trends) renderTrend()
+})
+
+watch(() => store.selectedLedgerId, () => {
+  loadAll()
 })
 
 function renderPie() {

@@ -105,6 +105,24 @@ export function createRecordsRouter({
     const nextAmount = amount ?? rec.amount
     const cnyAmount = nextCurrency !== 'CNY' ? await toCny(Number(nextAmount), nextCurrency) : nextAmount
 
+    // 统一日期格式
+    let nextDate = date || rec.date
+    if (nextDate && typeof nextDate === 'string') {
+      if (nextDate.includes('T')) {
+        nextDate = nextDate.split('T')[0]
+      }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(nextDate)) {
+        try {
+          const d = new Date(nextDate)
+          if (!isNaN(d.getTime())) {
+            nextDate = d.toISOString().slice(0, 10)
+          }
+        } catch {
+          nextDate = rec.date
+        }
+      }
+    }
+
     await dbClient('records').where({ id: req.params.id, user_id: req.userId }).update({
       type: type || rec.type,
       amount: nextAmount,
@@ -112,7 +130,7 @@ export function createRecordsRouter({
       amount_cny: cnyAmount,
       category: category || rec.category,
       description: description !== undefined ? description : rec.description,
-      date: date || rec.date,
+      date: nextDate,
       merchant: merchant !== undefined ? (merchant || null) : rec.merchant,
       project: project !== undefined ? (project || null) : rec.project,
       member: member !== undefined ? (member || null) : rec.member

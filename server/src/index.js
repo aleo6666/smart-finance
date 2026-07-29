@@ -146,6 +146,9 @@ async function bootstrapAgent() {
   const { createAgentGraph } = await import('./agent/graph.js')
   const { buildRuntimeContext } = await import('./agent/runtime.js')
   const { createAgentService } = await import('./agent/service.js')
+  const { createDomainTools } = await import('./agent/tools/domainTools.js')
+  const { createDatasetStore } = await import('./agent/stores/datasetStore.js')
+  const { createOperationStore } = await import('./agent/stores/operationStore.js')
 
   const saver = new MemorySaver()
   console.warn('[Agent] using MemorySaver (non-persistent checkpoints)')
@@ -158,10 +161,19 @@ async function bootstrapAgent() {
     timeout: config.agent.requestTimeoutMs
   })
 
-  const graph = createAgentGraph({
+  const datasetStore = createDatasetStore()
+  const operationStore = createOperationStore(db)
+  const createRuntimeGraph = runtime => createAgentGraph({
     model,
+    tools: createDomainTools({
+      runtime,
+      datasetStore,
+      operationStore
+    }),
     checkpointer: saver,
-    config
+    config,
+    datasetStore,
+    operationStore
   })
 
   const legacyHandler = async (state, runtime) => ({
@@ -175,7 +187,7 @@ async function bootstrapAgent() {
 
   const agentService = createAgentService({
     config,
-    graph,
+    createGraph: createRuntimeGraph,
     legacy: legacyHandler
   })
 

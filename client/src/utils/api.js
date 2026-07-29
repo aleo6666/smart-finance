@@ -132,10 +132,10 @@ export const api = {
   },
 
   // ====== 聊天 ======
-  chat(message) {
+  chat(message, options = {}) {
     return request('/api/chat', {
       method: 'POST',
-      body: JSON.stringify({ message, use3Agent: true })
+      body: JSON.stringify({ message, use3Agent: true, ...options })
     })
   },
 
@@ -192,8 +192,10 @@ export const api = {
   },
 
   // ====== v2: 报表 ======
-  getReportTimerange(period = 'month') {
-    return request(`/api/reports/timerange?period=${period}`)
+  getReportTimerange(period = 'month', ledgerId = null) {
+    const params = new URLSearchParams({ period })
+    if (ledgerId) params.set('ledgerId', ledgerId)
+    return request(`/api/reports/timerange?${params.toString()}`)
   },
   getReportSummary(params = {}) {
     const qs = new URLSearchParams(params).toString()
@@ -233,9 +235,12 @@ export const api = {
   },
 
   // ====== 旧版兼容（仍可用） ======
-  getMonthlyReport(month) {
-    const qs = month ? `?month=${month}` : ''
-    return request(`/api/reports/monthly${qs}`)
+  getMonthlyReport(month, ledgerId = null) {
+    const params = new URLSearchParams()
+    if (month) params.set('month', month)
+    if (ledgerId) params.set('ledgerId', ledgerId)
+    const qs = params.toString()
+    return request(`/api/reports/monthly${qs ? `?${qs}` : ''}`)
   },
   getCategoryReport(month) {
     const qs = month ? `?month=${month}` : ''
@@ -244,8 +249,9 @@ export const api = {
   getTrend(months = 6) {
     return request(`/api/reports/trend?months=${months}`)
   },
-  getTodayReport() {
-    return request('/api/reports/today')
+  getTodayReport(ledgerId = null) {
+    const qs = ledgerId ? `?ledgerId=${ledgerId}` : ''
+    return request(`/api/reports/today${qs}`)
   },
 
   // ====== 目标 ======

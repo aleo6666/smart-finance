@@ -67,8 +67,12 @@ export const useAppStore = defineStore('app', {
       api.clearToken()
     },
 
-    selectLedger(id) {
+    async selectLedger(id) {
       this.selectedLedgerId = id
+      await Promise.all([
+        this.refreshToday(),
+        this.refreshMonthly()
+      ])
     },
 
     // ====== 聊天 ======
@@ -77,7 +81,7 @@ export const useAppStore = defineStore('app', {
       this.loading = true
 
       try {
-        const res = await api.chat(text)
+        const res = await api.chat(text, { ledgerId: this.selectedLedgerId })
         const data = res.data
 
         this.messages.push({
@@ -89,8 +93,19 @@ export const useAppStore = defineStore('app', {
         })
 
         // 记账成功后刷新今日和本月数据
+        const msg = data.message || ''
         const isRecordIntent = data.intent === 'record' || 
-                               data.source === 'langgraph' && (data.intent === 'record' || data.message?.includes('已记录') || data.message?.includes('记账'))
+                               data.intent === 'record_transaction' ||
+                               msg.includes('记录') || 
+                               msg.includes('记账') ||
+                               msg.includes('已记') ||
+                               msg.includes('记下') ||
+                               msg.includes('记了') ||
+                               msg.includes('记好') ||
+                               msg.includes('添加') ||
+                               msg.includes('新增') ||
+                               msg.includes('已添加') ||
+                               msg.includes('成功') && msg.includes('账')
         if (isRecordIntent) {
           await Promise.all([
             this.refreshToday(),
@@ -154,7 +169,7 @@ export const useAppStore = defineStore('app', {
 
     async refreshToday() {
       try {
-        const res = await api.getTodayReport()
+        const res = await api.getTodayReport(this.selectedLedgerId)
         this.todayExpense = res.data.total
         return res.data
       } catch { return null }
@@ -162,7 +177,7 @@ export const useAppStore = defineStore('app', {
 
     async refreshMonthly() {
       try {
-        const res = await api.getMonthlyReport()
+        const res = await api.getMonthlyReport(null, this.selectedLedgerId)
         this.monthlyStats = res.data
         return res.data
       } catch { return null }

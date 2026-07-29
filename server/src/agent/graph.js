@@ -130,11 +130,78 @@ function parseTextToolCalls(content, knownNames) {
   }
 
   if (blocks.length === 0) {
-    const bareRe = /\{[^}]*"tool"\s*:\s*"[^"]*"[^}]*\}/g
-    while ((match = bareRe.exec(content)) !== null) {
-      blocks.push({ raw: match[0], json: match[0] })
+    // 1. 先尝试把整个文本当作 JSON 解析（支持嵌套的 OpenAI 格式：name + arguments）
+    const trimmed = content.trim()
+    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+      try {
+        const parsed = JSON.parse(trimmed)
+        if (parsed && (typeof parsed.name === 'string' || typeof parsed.tool === 'string')) {
+          blocks.push({ raw: content, json: trimmed })
+        }
+      } catch {
+        // 解析失败，继续尝试其他方式
+        try {
+          const repaired = jsonRepair(trimmed)
+          const parsed = JSON.parse(repaired)
+          if (parsed && (typeof parsed.name === 'string' || typeof parsed.tool === 'string')) {
+            blocks.push({ raw: content, json: repaired })
+          }
+        } catch { /* 修复失败，继续 */ }
+      }
     }
-    // Also catch bare param objects without "tool" key (e.g. {"start_date": "...", "end_date": "..."})
+
+    // 2. 用计数器方式提取完整的嵌套 JSON 对象（支持 arguments 等嵌套结构）
+    if (blocks.length === 0) {
+      function extractNestedJson(str) {
+        const results = []
+        let depth = 0
+        let start = -1
+        let inString = false
+        let escape = false
+
+        for (let i = 0; i < str.length; i++) {
+          const char = str[i]
+          if (escape) { escape = false; continue }
+          if (char === '\\') { escape = true; continue }
+          if (char === '"') { inString = !inString; continue }
+          if (inString) continue
+          if (char === '{') {
+            if (depth === 0) start = i
+            depth++
+          } else if (char === '}') {
+            depth--
+            if (depth === 0 && start !== -1) {
+              results.push(str.slice(start, i + 1))
+              start = -1
+            }
+          }
+        }
+        return results
+      }
+
+      const jsonCandidates = extractNestedJson(content)
+      for (const jsonStr of jsonCandidates) {
+        try {
+          const parsed = JSON.parse(jsonStr)
+          if (parsed && (typeof parsed.name === 'string' || typeof parsed.tool === 'string')) {
+            blocks.push({ raw: jsonStr, json: jsonStr })
+            break // 找到第一个就够了
+          }
+        } catch {
+          // 解析失败，跳过
+        }
+      }
+    }
+
+    // 3. 匹配包含 "tool" 或 "name" 字段的简单 JSON 对象
+    if (blocks.length === 0) {
+      const bareRe = /\{[^}]*"(tool|name)"\s*:\s*"[^"]*"[^}]*\}/g
+      while ((match = bareRe.exec(content)) !== null) {
+        blocks.push({ raw: match[0], json: match[0] })
+      }
+    }
+
+    // 4. 匹配包含特定参数的简单 JSON 对象（兜底）
     if (blocks.length === 0) {
       const paramRe = /\{[^}]*"(start_?date|end_?date|month|amount|category|type|query)"[^}]*\}/gi
       while ((match = paramRe.exec(content)) !== null) {
@@ -192,14 +259,15 @@ function normalizeArgs(args) {
       } catch { /* 修复失败，跳过 */ }
     }
 
-    if (parsed && (typeof parsed.tool === 'string' || hasQueryParams(parsed))) {
-      const aliasName = parsed.tool || guessToolByParams(parsed)
+    if (parsed && (typeof parsed.tool === 'string' || typeof parsed.name === 'string' || hasQueryParams(parsed))) {
+      const aliasName = parsed.tool || parsed.name || guessToolByParams(parsed)
       const resolvedName = TEXT_TOOL_ALIASES[aliasName] || aliasName
       if (resolvedName && knownNames.has(resolvedName)) {
         toolCalls.push({
           id: `text_${Math.random().toString(36).slice(2, 10)}`,
           name: resolvedName,
-          args: normalizeArgs(parsed.arguments || parsed.params || parsed)
+          args: normalizeArgs(parsed.arguments || parsed.params || parsed),
+          type: 'tool_call'
         })
         cleanContent = cleanContent.replace(block.raw, '')
       }
@@ -683,7 +751,7 @@ export function createAgentGraph({
       }
 
       return { messages: [result] }
-    } catch {
+    } catch (err) {
       return {
         messages: [new AIMessage('')],
         errors: [safeError('MODEL_UNAVAILABLE', 'call_model')]

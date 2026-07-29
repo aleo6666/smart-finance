@@ -183,6 +183,33 @@ test('buildRuntimeContext uses a valid idempotency key and safely normalizes met
   })
 })
 
+test('buildRuntimeContext accepts a positive current ledger from the request body', () => {
+  const context = buildRuntimeContext({
+    req: {
+      sessionId: 'trusted-session',
+      body: { ledgerId: '42' },
+      headers: {}
+    },
+    userId: 8,
+    isAdmin: false,
+    randomId: () => 'server-id'
+  })
+
+  assert.equal(context.currentLedgerId, 42)
+
+  const withoutLedger = buildRuntimeContext({
+    req: {
+      sessionId: 'trusted-session',
+      body: { ledgerId: 'not-a-ledger' },
+      headers: {}
+    },
+    userId: 8,
+    isAdmin: false,
+    randomId: () => 'server-id'
+  })
+  assert.equal(Object.hasOwn(withoutLedger, 'currentLedgerId'), false)
+})
+
 test('buildRuntimeContext rejects invalid server identity and missing session safely', () => {
   assert.throws(
     () => buildRuntimeContext({ req: { body: {}, headers: {} }, userId: 0, isAdmin: false }),

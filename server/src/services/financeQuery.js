@@ -15,6 +15,9 @@ function normalizeRecord(record) {
 function applyFilters(query, { userId, hints = {} }) {
   query.where('user_id', userId)
   if (hints.month) query.whereRaw('DATE_FORMAT(date, "%Y-%m") = ?', [hints.month])
+  if (hints.startDate) query.where('date', '>=', hints.startDate)
+  if (hints.endDate) query.where('date', '<=', hints.endDate)
+  if (hints.ledgerId) query.where('ledger_id', hints.ledgerId)
   if (hints.category) query.where('category', hints.category)
   if (hints.type) query.where('type', hints.type)
   return query

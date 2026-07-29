@@ -1,12 +1,12 @@
 import { interrupt } from '@langchain/langgraph'
 import { hashOperation } from '../stores/operationStore.js'
 
-// 暂时禁用敏感写操作的确认流程（interrupt 恢复机制待实现）
+// Sensitive writes always require confirmation before execution.
 const SENSITIVE_WRITE_TOOLS = new Set([
-  // 'update_budget',
-  // 'confirm_user_memory',
-  // 'delete_user_memory',
-  // 'update_transaction'
+  'update_budget',
+  'confirm_user_memory',
+  'delete_user_memory',
+  'update_transaction'
 ])
 
 const WRITE_TOOLS = new Set([

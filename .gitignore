@@ -25,6 +25,14 @@ ecosystem.config.js
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.png
+*.jpg
+*.jpeg
+*.webp
 .idea/
 .vscode/
 _deploy_temp/

@@ -10,6 +10,7 @@ import { z } from 'zod'
 import { createAgentGraph } from '../../src/agent/graph.js'
 import { createComposePromptNode } from '../../src/agent/nodes/composePrompt.js'
 import { createValidateToolCallNode } from '../../src/agent/nodes/validateToolCall.js'
+import { hashOperation } from '../../src/agent/stores/operationStore.js'
 
 const runtime = Object.freeze({
   userId: 7,
@@ -70,7 +71,8 @@ function createGraphFixture({
   datasetStore = { async get() { return {} } },
   loadMemoryContext = fakeMemoryLoader(),
   postTurnMemory,
-  observe
+  observe,
+  operationStore
 }) {
   const calls = {
     binds: 0,
@@ -86,7 +88,8 @@ function createGraphFixture({
     datasetStore,
     loadMemoryContext,
     postTurnMemory,
-    observe
+    observe,
+    operationStore
   })
   return { graph, calls }
 }
@@ -168,6 +171,70 @@ test('compiled graph executes an allowed tool and loops back without persisting 
   ).length, 1)
   assert.equal(result.messages.some(message => message._getType() === 'system'), false)
   assert.equal(result.response.message, '工具执行完成')
+})
+
+test('compiled graph parses markdown JSON tool calls with nested arguments', async () => {
+  const writes = []
+  const recordTransaction = tool(async input => {
+    writes.push(input)
+    return { recordIds: [101] }
+  }, {
+    name: 'record_transaction',
+    description: 'record a transaction',
+    schema: z.object({
+      amount: z.number(),
+      type: z.string(),
+      category: z.string(),
+      description: z.string().optional(),
+      date: z.string().optional()
+    })
+  })
+  const { graph, calls } = createGraphFixture({
+    tools: [recordTransaction],
+    operationStore: {
+      async claim(input) {
+        return {
+          status: 'owner',
+          inputHash: hashOperation({
+            operationType: input.operationType,
+            input: input.input
+          })
+        }
+      },
+      async succeed() {},
+      async fail() {}
+    },
+    outputs: [
+      new AIMessage(`好的，我先帮你记录这笔午餐支出。
+
+\`\`\`json
+{
+  "tool": "record_transaction",
+  "arguments": {
+    "amount": 25,
+    "type": "expense",
+    "category": "餐饮",
+    "description": "午餐",
+    "date": "2026-07-28"
+  }
+}
+\`\`\``),
+      new AIMessage('已记录这笔午餐支出。')
+    ]
+  })
+
+  const result = await invoke(graph, inputState('午餐25元'))
+
+  assert.deepEqual(writes, [{
+    amount: 25,
+    type: 'expense',
+    category: '餐饮',
+    description: '午餐',
+    date: '2026-07-28'
+  }])
+  assert.equal(calls.invocations.length, 1)
+  assert.equal(result.response.message, '记账成功。')
+  assert.doesNotMatch(result.response.message, /record_transaction|arguments|```json/)
 })
 
 test('ToolNode-level failures finalize without invoking the model again', async () => {

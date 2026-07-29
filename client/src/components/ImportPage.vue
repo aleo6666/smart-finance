@@ -214,8 +214,10 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { api } from '../utils/api.js'
+import { useAppStore } from '../stores/app.js'
 
 const PAGE_SIZE = 20
+const store = useAppStore()
 
 const isDragging = ref(false)
 const pasteContent = ref('')
@@ -306,7 +308,7 @@ function handleDrop(e) {
 
 async function uploadFile(file) {
   try {
-    const res = await api.importUploadFile(file)
+    const res = await api.importUploadFile(file, store.selectedLedgerId)
     if (res.success) {
       currentBatch.value = res.data
       currentPage.value = 1
@@ -321,7 +323,7 @@ async function uploadFile(file) {
 
 async function handlePasteImport() {
   try {
-    const res = await api.importPaste(pasteContent.value)
+    const res = await api.importPaste(pasteContent.value, store.selectedLedgerId)
     if (res.success) {
       currentBatch.value = res.data
       pasteContent.value = ''
@@ -395,6 +397,7 @@ async function confirmImport() {
     const res = await api.confirmImport(currentBatch.value.id, selectedIds)
     if (res.success) {
       await loadBatch(currentBatch.value.id)
+      await Promise.all([store.refreshToday(), store.refreshMonthly()])
       alert(`成功导入 ${res.data.importedCount} 条记录`)
     }
   } catch (e) {
@@ -414,6 +417,7 @@ async function rollbackBatch() {
     const res = await api.rollbackImport(currentBatch.value.id)
     if (res.success) {
       await loadBatch(currentBatch.value.id)
+      await Promise.all([store.refreshToday(), store.refreshMonthly()])
       alert('已撤销导入')
     }
   } catch (e) {

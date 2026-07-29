@@ -247,6 +247,148 @@ test('POST /api/chat answers query with exact finance summary', async () => {
   }
 })
 
+test('POST /api/chat answers today spending with a deterministic date range and ledger scope', async () => {
+  const app = express()
+  app.use(express.json())
+  app.use((req, _res, next) => {
+    req.deviceId = 'device-1'
+    next()
+  })
+  app.use('/api/chat', createChatRouter({
+    getUserId: () => 7,
+    now: () => new Date('2026-07-29T04:00:00.000Z'),
+    processMessage: async () => assert.fail('deterministic finance query must not call NLU or agents'),
+    appendConversationMessage: async () => {},
+    queryFinanceSummary: async ({ userId, hints }) => {
+      assert.equal(userId, 7)
+      assert.deepEqual(hints, {
+        startDate: '2026-07-29',
+        endDate: '2026-07-29',
+        type: 'expense',
+        ledgerId: 1,
+        queryKind: 'summary'
+      })
+      return {
+        hints,
+        count: 2,
+        total: 12.34,
+        average: 6.17,
+        maxRecord: { amount: 8, date: '2026-07-29', description: '早餐' },
+        records: []
+      }
+    }
+  }))
+
+  const { server, url } = await listen(app)
+  try {
+    const response = await fetch(`${url}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: '今天花了多少', ledgerId: 1 })
+    })
+    const json = await response.json()
+
+    assert.equal(response.status, 200)
+    assert.equal(json.success, true)
+    assert.equal(json.data.intent, 'query')
+    assert.equal(json.data.source, 'deterministic_finance')
+    assert.match(json.data.message, /今天支出共 12\.34 元/)
+  } finally {
+    server.close()
+  }
+})
+
+test('POST /api/chat answers this-month and previous-month spending deterministically', async () => {
+  const calls = []
+  const app = express()
+  app.use(express.json())
+  app.use((req, _res, next) => {
+    req.deviceId = 'device-1'
+    next()
+  })
+  app.use('/api/chat', createChatRouter({
+    getUserId: () => 7,
+    now: () => new Date('2026-07-29T04:00:00.000Z'),
+    processMessage: async () => assert.fail('deterministic finance query must not call NLU or agents'),
+    appendConversationMessage: async () => {},
+    queryFinanceSummary: async ({ hints }) => {
+      calls.push(hints)
+      return {
+        hints,
+        count: 3,
+        total: hints.month === '2026-06' ? 60 : 70,
+        average: 20,
+        maxRecord: null,
+        records: []
+      }
+    }
+  }))
+
+  const { server, url } = await listen(app)
+  try {
+    for (const message of ['这个月花了多少', '上月花了多少']) {
+      const response = await fetch(`${url}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, ledgerId: 1 })
+      })
+      const json = await response.json()
+      assert.equal(response.status, 200)
+      assert.equal(json.success, true)
+      assert.equal(json.data.source, 'deterministic_finance')
+    }
+
+    assert.deepEqual(calls, [
+      { month: '2026-07', type: 'expense', ledgerId: 1, queryKind: 'summary' },
+      { month: '2026-06', type: 'expense', ledgerId: 1, queryKind: 'summary' }
+    ])
+  } finally {
+    server.close()
+  }
+})
+
+test('POST /api/chat gives next-month advice without invoking model routing', async () => {
+  const app = express()
+  app.use(express.json())
+  app.use((req, _res, next) => {
+    req.deviceId = 'device-1'
+    next()
+  })
+  app.use('/api/chat', createChatRouter({
+    getUserId: () => 7,
+    now: () => new Date('2026-07-29T04:00:00.000Z'),
+    processMessage: async () => assert.fail('deterministic advice must not call NLU or agents'),
+    appendConversationMessage: async () => {},
+    queryFinanceSummary: async ({ hints }) => ({
+      hints,
+      count: 10,
+      total: 1000,
+      average: 100,
+      maxRecord: { amount: 300, category: '餐饮', date: '2026-07-20' },
+      records: []
+    })
+  }))
+
+  const { server, url } = await listen(app)
+  try {
+    const response = await fetch(`${url}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: '给下个月建议', ledgerId: 1 })
+    })
+    const json = await response.json()
+
+    assert.equal(response.status, 200)
+    assert.equal(json.success, true)
+    assert.equal(json.data.intent, 'suggest')
+    assert.equal(json.data.source, 'deterministic_finance')
+    assert.match(json.data.message, /下个月建议/)
+    assert.match(json.data.message, /本月已支出 1000\.00 元/)
+  } finally {
+    server.close()
+  }
+})
+
 test('POST /api/chat degrades when exact finance query fails', async () => {
   const app = express()
   app.use(express.json())

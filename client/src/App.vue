@@ -47,12 +47,6 @@
         <button class="menu-btn" @click="store.toggleSidebar()">☰</button>
         <span class="page-title">{{ pageTitle }}</span>
         
-        <!-- 移动端今日支出（只在小屏幕显示） -->
-        <div class="mobile-today-expense" v-if="store.todayExpense !== null">
-          <span class="label">今日</span>
-          <span class="amount">¥{{ store.todayExpense.toFixed(2) }}</span>
-        </div>
-        
         <div style="flex:1"></div>
 
         <select v-if="store.isLoggedIn && store.ledgers.length > 0" class="ledger-select"
@@ -199,4 +193,125 @@ onMounted(async () => {
   padding: 2px 4px;
 }
 .reminder-read-btn:hover { text-decoration: underline; }
+
+/* ========== 移动端顶部栏优化 ========== */
+@media (max-width: 768px) {
+  .topbar {
+    padding: 10px 14px;
+    height: 56px;
+    gap: 8px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    box-shadow: 0 2px 12px rgba(102, 126, 234, 0.3);
+  }
+
+  .menu-btn {
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    border: none;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .menu-btn:active {
+    background: rgba(255, 255, 255, 0.3);
+    transform: scale(0.95);
+  }
+
+  .page-title {
+    font-size: 17px;
+    font-weight: 600;
+    color: white;
+    letter-spacing: 0.5px;
+  }
+
+  .ledger-select {
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    padding: 6px 10px;
+    border-radius: 8px;
+    font-size: 12px;
+    max-width: 100px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ledger-select option {
+    color: #333;
+    background: white;
+  }
+
+  .user-tag {
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 20px;
+    font-size: 12px;
+    gap: 4px;
+  }
+  .user-tag .btn-logout {
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 14px;
+  }
+
+  .reminder-bell {
+    position: relative;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .reminder-bell:active {
+    background: rgba(255, 255, 255, 0.3);
+    transform: scale(0.95);
+  }
+  .reminder-bell .badge {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    background: #ff4757;
+    color: white;
+    font-size: 10px;
+    min-width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 4px;
+    font-weight: 600;
+  }
+}
+
+/* 小屏幕进一步优化 */
+@media (max-width: 480px) {
+  .topbar {
+    padding: 8px 12px;
+    height: 52px;
+  }
+
+  .page-title {
+    font-size: 16px;
+  }
+
+  .ledger-select {
+    display: none;
+  }
+
+  .user-tag span:not(.btn-logout) {
+    display: none;
+  }
+}
 </style>

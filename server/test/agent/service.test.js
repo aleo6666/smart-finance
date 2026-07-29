@@ -118,6 +118,76 @@ describe('createAgentService', () => {
     assert.equal(result.data.source, 'langgraph')
   })
 
+  it('creates a runtime-bound graph for enabled requests when a factory is supplied', async () => {
+    const runtimes = []
+    let graphCalled = false
+    const service = createAgentService({
+      config: fixtureConfig({ enabled: true, rolloutPercent: 100 }),
+      createGraph: runtime => {
+        runtimes.push(runtime)
+        return {
+          invoke: async (_state, invocationConfig) => {
+            graphCalled = true
+            assert.equal(invocationConfig.context.currentLedgerId, 1)
+            return {
+              response: {
+                success: true,
+                intent: 'record',
+                message: '记账成功。'
+              }
+            }
+          }
+        }
+      },
+      legacy: async () => assert.fail('legacy must not be called')
+    })
+
+    const runtime = fixtureRuntime({ currentLedgerId: 1 })
+    const result = await service.handle(
+      fixtureState({ intentType: 'record' }),
+      runtime
+    )
+
+    assert.deepEqual(runtimes, [runtime])
+    assert.equal(graphCalled, true)
+    assert.equal(result.data.message, '记账成功。')
+  })
+
+  it('resets checkpointed volatile state before invoking a new user request', async () => {
+    let receivedState
+    const service = createAgentService({
+      config: fixtureConfig({ enabled: true, rolloutPercent: 100 }),
+      graph: {
+        invoke: async state => {
+          receivedState = state
+          return {
+            response: {
+              success: true,
+              intent: 'record',
+              message: '记账成功。'
+            }
+          }
+        }
+      },
+      legacy: async () => assert.fail('legacy must not be called')
+    })
+
+    await service.handle(fixtureState({
+      intentType: 'record',
+      pendingConfirmation: { toolName: 'record_transaction' },
+      toolCallCount: 99,
+      errors: [{ code: 'TOOL_CALL_LIMIT', fatal: true }],
+      response: { success: false },
+      datasetRefs: [{ datasetRef: 'ds_previous' }]
+    }), fixtureRuntime())
+
+    assert.equal(receivedState.pendingConfirmation, null)
+    assert.equal(receivedState.toolCallCount, 0)
+    assert.deepEqual(receivedState.errors, [])
+    assert.equal(receivedState.response, null)
+    assert.deepEqual(receivedState.datasetRefs, [])
+  })
+
   it('returns manual record form on write-intent graph failure', async () => {
     const service = createAgentService({
       config: fixtureConfig({ enabled: true, rolloutPercent: 100 }),

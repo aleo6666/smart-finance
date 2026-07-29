@@ -77,6 +77,11 @@ function normalizeLocale(value) {
     : 'zh-CN'
 }
 
+function normalizeOptionalLedgerId(value) {
+  const ledgerId = Number(value)
+  return Number.isSafeInteger(ledgerId) && ledgerId > 0 ? ledgerId : null
+}
+
 export function buildRuntimeContext({
   req,
   userId,
@@ -95,7 +100,7 @@ export function buildRuntimeContext({
     throw new RuntimeContextValidationError('x-idempotency-key is invalid')
   }
 
-  return Object.freeze({
+  const context = {
     userId: numericUserId,
     sessionId: normalizeTrustedSessionId(req?.sessionId),
     requestId,
@@ -105,5 +110,8 @@ export function buildRuntimeContext({
     timezone: normalizeTimezone(readHeader(req, 'x-timezone')),
     locale: normalizeLocale(readHeader(req, 'accept-language')),
     inputMode: req?.body?.inputMode === 'voice' ? 'voice' : 'text'
-  })
+  }
+  const currentLedgerId = normalizeOptionalLedgerId(req?.body?.ledgerId)
+  if (currentLedgerId) context.currentLedgerId = currentLedgerId
+  return Object.freeze(context)
 }

@@ -44,6 +44,11 @@ function queryScope(input) {
   return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined))
 }
 
+function trustedRuntimeLedgerId(runtime) {
+  const ledgerId = Number(runtime?.currentLedgerId)
+  return Number.isSafeInteger(ledgerId) && ledgerId > 0 ? ledgerId : null
+}
+
 function previousMonth(month) {
   if (typeof month !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
     return null
@@ -476,12 +481,16 @@ export function createDomainTools({
     }
 
     try {
+      let recordInput = { ...input }
+      const runtimeLedgerId = trustedRuntimeLedgerId(runtime)
+      if (runtimeLedgerId) recordInput.ledgerId = runtimeLedgerId
+
       const result = await recordFromPlannerTask({
         task: {
           payload: {
             userId: runtime.userId,
             deviceId: `user-${runtime.userId}`,
-            record: input
+            record: recordInput
           }
         }
       })

@@ -123,6 +123,80 @@ test('record tool lets only an idempotency owner call the existing recorder', as
   assert.equal(recorderCalls[0].task.payload.deviceId, 'user-7')
 })
 
+test('record tool uses the trusted runtime ledger when the model omits ledgerId', async () => {
+  const recorderCalls = []
+  const tools = toolsByName({
+    runtime: {
+      userId: 7,
+      requestId: 'request-1',
+      operationId: 'operation-1',
+      currentLedgerId: 42
+    },
+    queryFinanceSummary: async () => ({}),
+    datasetStore: {},
+    executeCalculation: async () => ({}),
+    checkBudget: async () => ({}),
+    recordFromPlannerTask: async input => {
+      recorderCalls.push(input)
+      return { recordIds: [8] }
+    },
+    operationStore: {
+      async claim() {
+        return { status: 'owner', inputHash: 'hash-1' }
+      },
+      async succeed() {},
+      async fail() {}
+    }
+  })
+
+  await tools.record_transaction.invoke({
+    amount: 25,
+    type: 'expense',
+    category: 'transport',
+    date: '2026-07-25'
+  })
+
+  assert.equal(recorderCalls.length, 1)
+  assert.equal(recorderCalls[0].task.payload.record.ledgerId, 42)
+})
+
+test('record tool prefers the trusted runtime ledger over model supplied ledgerId', async () => {
+  const recorderCalls = []
+  const tools = toolsByName({
+    runtime: {
+      userId: 7,
+      requestId: 'request-1',
+      operationId: 'operation-1',
+      currentLedgerId: 42
+    },
+    queryFinanceSummary: async () => ({}),
+    datasetStore: {},
+    executeCalculation: async () => ({}),
+    checkBudget: async () => ({}),
+    recordFromPlannerTask: async input => {
+      recorderCalls.push(input)
+      return { recordIds: [8] }
+    },
+    operationStore: {
+      async claim() {
+        return { status: 'owner', inputHash: 'hash-1' }
+      },
+      async succeed() {},
+      async fail() {}
+    }
+  })
+
+  await tools.record_transaction.invoke({
+    amount: 25,
+    type: 'expense',
+    category: 'transport',
+    date: '2026-07-25',
+    ledgerId: 99
+  })
+
+  assert.equal(recorderCalls[0].task.payload.record.ledgerId, 42)
+})
+
 test('record tool accepts a matching trusted preclaim without claiming twice', async () => {
   const input = {
     amount: 25,

@@ -18,6 +18,27 @@ function normalizeRecord(payload) {
   const amount = Number(record.amount)
   const currency = record.currency || 'CNY'
 
+  // 统一日期格式：把 ISO 格式（带 T/Z）转换成 YYYY-MM-DD
+  let date = record.date
+  if (date && typeof date === 'string') {
+    // 如果是 ISO 格式，提取日期部分
+    if (date.includes('T')) {
+      date = date.split('T')[0]
+    }
+    // 确保格式正确
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      try {
+        const d = new Date(date)
+        if (!isNaN(d.getTime())) {
+          date = d.toISOString().slice(0, 10)
+        }
+      } catch {
+        // 解析失败，用当前日期
+        date = new Date().toISOString().slice(0, 10)
+      }
+    }
+  }
+
   return {
     device_id: payload.deviceId || `user-${payload.userId}`,
     user_id: payload.userId || null,
@@ -31,7 +52,7 @@ function normalizeRecord(payload) {
     merchant: record.merchant || null,
     project: record.project || null,
     member: record.member || null,
-    date: record.date || new Date().toISOString().slice(0, 10)
+    date: date || new Date().toISOString().slice(0, 10)
   }
 }
 

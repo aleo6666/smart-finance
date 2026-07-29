@@ -10,6 +10,7 @@ export function inRollout(userId, percent) {
 export function createAgentService({
   config,
   graph,
+  createGraph,
   legacy
 }) {
   return {
@@ -22,7 +23,18 @@ export function createAgentService({
       }
 
       try {
-        const result = await graph.invoke(state, {
+        const activeGraph = typeof createGraph === 'function'
+          ? createGraph(runtime)
+          : graph
+        const freshState = {
+          ...state,
+          datasetRefs: [],
+          pendingConfirmation: null,
+          toolCallCount: 0,
+          errors: [],
+          response: null
+        }
+        const result = await activeGraph.invoke(freshState, {
           configurable: {
             thread_id: `${runtime.userId}:${runtime.sessionId}`
           },

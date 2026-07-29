@@ -15,10 +15,17 @@ function getOptionalUserId(req) {
   return null
 }
 
+function getOptionalLedgerId(req) {
+  const ledgerId = Number(req.query?.ledgerId ?? req.body?.ledgerId)
+  return Number.isSafeInteger(ledgerId) && ledgerId > 0 ? ledgerId : null
+}
+
 function scopedRecords(dbClient, req, userId = getOptionalUserId(req)) {
   const query = dbClient('records')
   if (userId) query.where('user_id', userId)
   else query.where('device_id', req.deviceId)
+  const ledgerId = getOptionalLedgerId(req)
+  if (ledgerId) query.where('ledger_id', ledgerId)
   return query
 }
 
