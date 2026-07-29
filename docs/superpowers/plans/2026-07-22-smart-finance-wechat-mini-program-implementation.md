@@ -69,7 +69,7 @@ miniprogram/
   "miniprogramRoot": "miniprogram/",
   "projectname": "smart-finance",
   "description": "智能财务记账助手",
-  "appid": "wx729cb36a8ec54cbc",
+  "appid": "touristappid",
   "setting": {
     "urlCheck": true,
     "es6": true,
