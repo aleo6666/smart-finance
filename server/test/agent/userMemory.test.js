@@ -119,7 +119,8 @@ function createFakeDb({
   return db
 }
 
-test('classifyMemory only permits the four normal preference keys', () => {
+test('classifyMemory permits low-risk profile and preference keys', () => {
+  assert.equal(classifyMemory('user_profile', 'name'), 'normal')
   assert.equal(classifyMemory('preferences', 'default_currency'), 'normal')
   assert.equal(classifyMemory('preferences', 'response_style'), 'normal')
   assert.equal(classifyMemory('preferences', 'preferred_categories'), 'normal')

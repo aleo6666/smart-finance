@@ -146,9 +146,15 @@ async function bootstrapAgent() {
   const { createAgentGraph } = await import('./agent/graph.js')
   const { buildRuntimeContext } = await import('./agent/runtime.js')
   const { createAgentService } = await import('./agent/service.js')
-  const { createDomainTools } = await import('./agent/tools/domainTools.js')
+  const { createRuntimeTools } = await import('./agent/tools/runtimeTools.js')
   const { createDatasetStore } = await import('./agent/stores/datasetStore.js')
   const { createOperationStore } = await import('./agent/stores/operationStore.js')
+  const { createUserMemoryRepository } = await import('./agent/memory/userMemory.js')
+  const { createSessionMetadataStore } = await import('./agent/memory/sessionMetadata.js')
+  const { createRecentSummaryRepository } = await import('./agent/memory/recentSummary.js')
+  const { createWindowMemory } = await import('./agent/memory/windowMemory.js')
+  const { createContextLoader } = await import('./agent/memory/contextLoader.js')
+  const { createPostTurnMemoryNode } = await import('./agent/nodes/postTurnMemory.js')
 
   const saver = new MemorySaver()
   console.warn('[Agent] using MemorySaver (non-persistent checkpoints)')
@@ -163,17 +169,35 @@ async function bootstrapAgent() {
 
   const datasetStore = createDatasetStore()
   const operationStore = createOperationStore(db)
+  const userMemoryRepository = createUserMemoryRepository(db)
+  const sessionMetadata = createSessionMetadataStore()
+  const recentSummary = createRecentSummaryRepository(db)
+  const windowMemory = createWindowMemory()
+  const loadMemoryContext = createContextLoader({
+    sessionMetadata,
+    userMemory: userMemoryRepository,
+    recentSummary,
+    windowMemory
+  })
+  const postTurnMemory = createPostTurnMemoryNode({
+    windowMemory,
+    recentSummary,
+    summaryTriggerMessages: config.memory.summaryTriggerMessages
+  })
   const createRuntimeGraph = runtime => createAgentGraph({
     model,
-    tools: createDomainTools({
+    tools: createRuntimeTools({
       runtime,
       datasetStore,
-      operationStore
+      operationStore,
+      memoryRepository: userMemoryRepository
     }),
     checkpointer: saver,
     config,
     datasetStore,
-    operationStore
+    operationStore,
+    loadMemoryContext,
+    postTurnMemory
   })
 
   const legacyHandler = async (state, runtime) => ({

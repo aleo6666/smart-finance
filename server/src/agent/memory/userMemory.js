@@ -4,6 +4,7 @@ import {
 } from '../runtime.js'
 
 const NORMAL_KEYS = new Set([
+  'user_profile.name',
   'preferences.default_currency',
   'preferences.response_style',
   'preferences.preferred_categories',
