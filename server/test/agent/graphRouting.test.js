@@ -470,6 +470,63 @@ test('calculation dataset references are all prevalidated in trusted request sco
   assert.equal(result.toolCallCount, 1)
 })
 
+test('record tool validation normalizes common spoken Chinese arguments before schema checks', async () => {
+  const recordTransaction = tool(async () => ({ recordIds: [101] }), {
+    name: 'record_transaction',
+    description: 'record a transaction',
+    schema: z.object({
+      amount: z.number().finite().positive(),
+      type: z.enum(['income', 'expense']).default('expense'),
+      category: z.string().trim().min(1).max(64),
+      description: z.string().max(500).optional(),
+      date: z.iso.date().optional(),
+      currency: z.string().regex(/^[A-Z]{3}$/).default('CNY')
+    })
+  })
+  const node = createValidateToolCallNode({
+    tools: [recordTransaction],
+    maxToolCalls: 3,
+    now: () => new Date('2026-07-31T02:05:00.000Z')
+  })
+  const state = {
+    messages: [new AIMessage({
+      content: '',
+      tool_calls: [{
+        id: 'record-1',
+        name: 'record_transaction',
+        args: {
+          amount: '50元',
+          type: '支出',
+          category: '电费',
+          description: '交电费',
+          date: '今天',
+          currency: '人民币'
+        },
+        type: 'tool_call'
+      }]
+    })],
+    toolCallCount: 0,
+    errors: []
+  }
+
+  const result = await node(state, {
+    context: {
+      ...runtime,
+      timezone: 'Asia/Shanghai'
+    }
+  })
+
+  assert.equal(result.toolCallCount, 1)
+  assert.deepEqual(state.messages.at(-1).tool_calls[0].args, {
+    amount: 50,
+    type: 'expense',
+    category: '电费',
+    description: '交电费',
+    date: '2026-07-31',
+    currency: 'CNY'
+  })
+})
+
 test('tool dataset metadata stored in state drops raw rows and unknown scope fields', async () => {
   const query = tool(async () => ({
     datasetRef: 'ds_safe',

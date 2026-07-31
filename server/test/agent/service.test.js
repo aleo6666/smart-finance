@@ -208,6 +208,70 @@ describe('createAgentService', () => {
     assert.equal(result.data.source, 'langgraph_fallback')
   })
 
+  it('falls back to legacy when a record graph returns retryable validation failure', async () => {
+    let legacyCalled = false
+    const service = createAgentService({
+      config: fixtureConfig({ enabled: true, rolloutPercent: 100 }),
+      graph: {
+        invoke: async () => ({
+          response: {
+            success: false,
+            intent: 'record',
+            message: '请求无法安全执行，请调整后重试。',
+            errorCodes: ['INVALID_TOOL_ARGUMENTS']
+          }
+        })
+      },
+      legacy: async () => {
+        legacyCalled = true
+        return {
+          success: true,
+          data: {
+            intent: 'record',
+            message: 'legacy recorded',
+            source: 'legacy'
+          }
+        }
+      }
+    })
+
+    const result = await service.handle(
+      fixtureState({ intentType: 'record' }),
+      fixtureRuntime()
+    )
+
+    assert.equal(legacyCalled, true)
+    assert.equal(result.success, true)
+    assert.equal(result.data.source, 'legacy')
+    assert.equal(result.data.message, 'legacy recorded')
+  })
+
+  it('does not fall back to legacy for trusted-argument record rejection', async () => {
+    const service = createAgentService({
+      config: fixtureConfig({ enabled: true, rolloutPercent: 100 }),
+      graph: {
+        invoke: async () => ({
+          response: {
+            success: false,
+            intent: 'record',
+            message: '请求无法安全执行，请调整后重试。',
+            errorCodes: ['TRUSTED_ARGUMENT_REJECTED']
+          }
+        })
+      },
+      legacy: async () => assert.fail('trusted argument rejection must not use legacy')
+    })
+
+    const result = await service.handle(
+      fixtureState({ intentType: 'record' }),
+      fixtureRuntime()
+    )
+
+    assert.equal(result.success, false)
+    assert.equal(result.data.source, 'langgraph')
+    assert.deepEqual(result.data.errorCodes, ['TRUSTED_ARGUMENT_REJECTED'])
+  })
+
   it('calls legacy on non-write graph failure', async () => {
     let legacyCalled = false
     const service = createAgentService({

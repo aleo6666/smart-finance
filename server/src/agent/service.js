@@ -7,6 +7,25 @@ export function inRollout(userId, percent) {
   return digest.readUInt32BE(0) % 100 < percent
 }
 
+const RETRYABLE_RECORD_ERROR_CODES = new Set([
+  'INVALID_TOOL_ARGUMENTS',
+  'MODEL_UNAVAILABLE',
+  'TOOL_CALL_LIMIT'
+])
+
+function includesRecordIntent(value) {
+  return String(value ?? '').split('+').includes('record')
+}
+
+function shouldFallbackToLegacy(result) {
+  const response = result?.response
+  if (response?.success !== false || !includesRecordIntent(response.intent)) {
+    return false
+  }
+  const errorCodes = Array.isArray(response.errorCodes) ? response.errorCodes : []
+  return errorCodes.some(code => RETRYABLE_RECORD_ERROR_CODES.has(code))
+}
+
 export function createAgentService({
   config,
   graph,
@@ -42,6 +61,10 @@ export function createAgentService({
           recursionLimit: config?.agent?.recursionLimit ?? 12
         })
 
+        if (shouldFallbackToLegacy(result)) {
+          return legacy(state, runtime)
+        }
+
         return {
           success: result?.response?.success !== false,
           data: {
@@ -53,7 +76,7 @@ export function createAgentService({
         }
       } catch (error) {
         console.warn('[Agent] graph invoke failed:', error.message)
-        const isWriteIntent = String(state.intentType ?? '').includes('record')
+        const isWriteIntent = includesRecordIntent(state.intentType)
         if (isWriteIntent) {
           return {
             success: true,
