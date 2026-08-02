@@ -38,5 +38,6 @@ export const AgentState = new StateSchema({
   response: objectMap().nullable().default(null),
   requestStartTime: z.number().int().nonnegative(),
   isAdmin: z.boolean().default(false),
+  adminLevel: z.string().nullable().default(null),
   intentType: IntentTypeSchema.default('unknown')
 })

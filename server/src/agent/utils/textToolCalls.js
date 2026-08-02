@@ -85,14 +85,7 @@ export function parseTextToolCalls(content, knownNames) {
         blocks.push({ raw: match[0], json: match[0] })
       }
     }
-
-    // 策略 4: 兜底 —— 匹配含常见参数名的 JSON 对象
-    if (blocks.length === 0) {
-      const paramRe = /\{[^}]*"(start_?date|end_?date|month|amount|category|type|query)"[^}]*\}/gi
-      while ((match = paramRe.exec(content)) !== null) {
-        blocks.push({ raw: match[0], json: match[0] })
-      }
-    }
+    // 策略 4 已移除 — 过于宽松的参数正则可能被注入利用
   }
 
   const toolCalls = []

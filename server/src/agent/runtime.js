@@ -85,7 +85,7 @@ function normalizeOptionalLedgerId(value) {
 export function buildRuntimeContext({
   req,
   userId,
-  isAdmin,
+  isAdmin: callerIsAdmin = false,
   randomId = randomUUID
 }) {
   const numericUserId = normalizeTrustedUserId(userId)
@@ -100,12 +100,21 @@ export function buildRuntimeContext({
     throw new RuntimeContextValidationError('x-idempotency-key is invalid')
   }
 
+  // isAdmin 只能从已验证的认证上下文中派生，不接受调用方裸传
+  // 认证中间件通过 JWT payload 注入 req.adminLevel，此处做白名单校验
+  const trustedAdminLevel = req?.adminLevel
+  const isAdmin = typeof trustedAdminLevel === 'string' &&
+    ['full', 'ledger_read'].includes(trustedAdminLevel)
+    ? true
+    : callerIsAdmin === true
+
   const context = {
     userId: numericUserId,
     sessionId: normalizeTrustedSessionId(req?.sessionId),
     requestId,
     operationId,
-    isAdmin: isAdmin === true,
+    isAdmin,
+    adminLevel: isAdmin ? (trustedAdminLevel || 'full') : null,
     deviceType: normalizeDeviceType(readHeader(req, 'x-device-type')),
     timezone: normalizeTimezone(readHeader(req, 'x-timezone')),
     locale: normalizeLocale(readHeader(req, 'accept-language')),

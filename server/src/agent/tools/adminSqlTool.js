@@ -8,6 +8,7 @@ import {
   AdminSqlRejectedError,
   guardAdminSql
 } from '../security/sqlGuard.js'
+import { getRedisClient } from '../../redis.js'
 
 export class AdminSqlToolError extends Error {
   constructor(code, message, statusCode) {
@@ -43,36 +44,36 @@ function sqlTemplateHash(sql) {
   return createHash('sha256').update(String(sql)).digest('hex')
 }
 
-// 简单的内存频率限制器（per-userId，滑动窗口）
-const rateLimitStore = new Map()
+// Redis 频率限制器（多实例共享，Redis 不可用时降级为宽松模式）
+async function checkRateLimit(userId, maxRequestsPerMinute) {
+  const key = `admin_sql:ratelimit:${userId}`
+  const now = Math.floor(Date.now() / 1000)
+  const windowStart = now - 60
 
-function checkRateLimit(userId, maxRequestsPerMinute) {
-  const now = Date.now()
-  const windowMs = 60_000
-  const key = userId
-  
-  let bucket = rateLimitStore.get(key)
-  if (!bucket || now - bucket.windowStart > windowMs) {
-    bucket = { windowStart: now, count: 0 }
-    rateLimitStore.set(key, bucket)
-  }
-  
-  bucket.count++
-  
-  // 定期清理过期条目（每 100 次检查清理一次）
-  if (Math.random() < 0.01) {
-    const cutoff = now - windowMs * 2
-    for (const [k, v] of rateLimitStore) {
-      if (now - v.windowStart > cutoff) rateLimitStore.delete(k)
+  try {
+    const redis = getRedisClient()
+    if (redis.status === 'wait') await redis.connect()
+
+    const multi = redis.multi()
+    multi.zremrangebyscore(key, 0, windowStart)
+    multi.zadd(key, now, `${now}-${Math.random().toString(36).slice(2, 8)}`)
+    multi.zcount(key, windowStart, now + 1)
+    multi.expire(key, 61)
+
+    const [, , count] = await multi.exec()
+    const requestCount = count?.[1] ?? 0
+
+    if (requestCount > maxRequestsPerMinute) {
+      throw new AdminSqlToolError(
+        'ADMIN_SQL_RATE_LIMITED',
+        `管理 SQL 查询频率超限（${maxRequestsPerMinute} 次/分钟），请稍后再试`,
+        429
+      )
     }
-  }
-  
-  if (bucket.count > maxRequestsPerMinute) {
-    throw new AdminSqlToolError(
-      'ADMIN_SQL_RATE_LIMITED',
-      `管理 SQL 查询频率超限（${maxRequestsPerMinute} 次/分钟），请稍后再试`,
-      429
-    )
+  } catch (error) {
+    if (error instanceof AdminSqlToolError) throw error
+    // Redis 不可用时放宽限制
+    console.warn('[AdminSqlTool] Redis rate limit unavailable, allowing request')
   }
 }
 
@@ -139,7 +140,6 @@ function readonlyPoolOptions(config) {
   ) {
     throw unavailable()
   }
-  // 强制要求只读账号不能与主数据库账号相同
   if (
     config?.db?.user &&
     config?.db?.host &&
@@ -185,8 +185,7 @@ export function createAdminSqlTool({
     const context = toolRuntime?.context
     if (!trustedGate({ runtime, context, config })) forbidden()
 
-    // 频率限制检查
-    checkRateLimit(runtime.userId, config.adminSql.maxRequestsPerMinute)
+    await checkRateLimit(runtime.userId, config.adminSql.maxRequestsPerMinute)
 
     const startedAt = performance.now()
     const hash = sqlTemplateHash(input.sql)
