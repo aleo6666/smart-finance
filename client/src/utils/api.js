@@ -70,18 +70,34 @@ export const api = {
   },
 
   // 用户名密码注册
-  register(username, password) {
+  register(phone, code, password) {
     return request('/api/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ username, password })
+      body: JSON.stringify({ phone, code, password })
     })
   },
 
   // 用户名密码登录
-  login(username, password) {
+  login(phone, password) {
     return request('/api/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ username, password })
+      body: JSON.stringify({ phone, password })
+    })
+  },
+
+  // 发送短信验证码
+  sendCode(phone) {
+    return request('/api/auth/send-code', {
+      method: 'POST',
+      body: JSON.stringify({ phone })
+    })
+  },
+
+  // 忘记密码 — 重置
+  resetPassword(phone, code, password) {
+    return request('/api/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ phone, code, password })
     })
   },
 
