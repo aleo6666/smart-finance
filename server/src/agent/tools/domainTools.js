@@ -1,6 +1,11 @@
 import { tool } from 'langchain'
 import { z } from 'zod'
 import db from '../../db.js'
+import {
+  queryFinanceSummary as sharedQueryFinanceSummary,
+  queryFinanceCategoryStats as sharedQueryFinanceCategoryStats,
+  applyRecordFilters
+} from '../../services/recordQuery.js'
 import { queryFinanceSummary as defaultQueryFinanceSummary } from '../../services/financeQuery.js'
 import {
   execute as defaultExecuteCalculation,

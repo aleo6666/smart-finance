@@ -43,6 +43,39 @@ function sqlTemplateHash(sql) {
   return createHash('sha256').update(String(sql)).digest('hex')
 }
 
+// 简单的内存频率限制器（per-userId，滑动窗口）
+const rateLimitStore = new Map()
+
+function checkRateLimit(userId, maxRequestsPerMinute) {
+  const now = Date.now()
+  const windowMs = 60_000
+  const key = userId
+  
+  let bucket = rateLimitStore.get(key)
+  if (!bucket || now - bucket.windowStart > windowMs) {
+    bucket = { windowStart: now, count: 0 }
+    rateLimitStore.set(key, bucket)
+  }
+  
+  bucket.count++
+  
+  // 定期清理过期条目（每 100 次检查清理一次）
+  if (Math.random() < 0.01) {
+    const cutoff = now - windowMs * 2
+    for (const [k, v] of rateLimitStore) {
+      if (now - v.windowStart > cutoff) rateLimitStore.delete(k)
+    }
+  }
+  
+  if (bucket.count > maxRequestsPerMinute) {
+    throw new AdminSqlToolError(
+      'ADMIN_SQL_RATE_LIMITED',
+      `管理 SQL 查询频率超限（${maxRequestsPerMinute} 次/分钟），请稍后再试`,
+      429
+    )
+  }
+}
+
 function trustedGate({ runtime, context, config }) {
   return runtime?.isAdmin === true &&
     context?.isAdmin === true &&
@@ -99,8 +132,25 @@ function normalizeJsonValue(value, seen = new Set()) {
 
 function readonlyPoolOptions(config) {
   const sqlConfig = config?.adminSql ?? {}
-  if (!sqlConfig.user || typeof sqlConfig.password !== 'string') {
+  if (
+    !sqlConfig.user ||
+    typeof sqlConfig.password !== 'string' ||
+    !sqlConfig.host
+  ) {
     throw unavailable()
+  }
+  // 强制要求只读账号不能与主数据库账号相同
+  if (
+    config?.db?.user &&
+    config?.db?.host &&
+    sqlConfig.user === config.db.user &&
+    sqlConfig.host === config.db.host
+  ) {
+    throw new AdminSqlToolError(
+      'ADMIN_SQL_READONLY_REQUIRED',
+      '管理 SQL 必须使用独立的只读数据库账号，不能与业务写账号相同',
+      503
+    )
   }
   return {
     host: sqlConfig.host,
@@ -134,6 +184,9 @@ export function createAdminSqlTool({
   return tool(async (input, toolRuntime) => {
     const context = toolRuntime?.context
     if (!trustedGate({ runtime, context, config })) forbidden()
+
+    // 频率限制检查
+    checkRateLimit(runtime.userId, config.adminSql.maxRequestsPerMinute)
 
     const startedAt = performance.now()
     const hash = sqlTemplateHash(input.sql)

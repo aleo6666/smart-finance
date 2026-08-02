@@ -27,6 +27,7 @@ import {
   isValidPendingConfirmation
 } from './nodes/riskAndConfirmation.js'
 import { hashOperation } from './stores/operationStore.js'
+import { parseTextToolCalls } from './utils/textToolCalls.js'
 
 const DATASET_SCOPE_FIELDS = new Set([
   'month',

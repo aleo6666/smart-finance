@@ -107,7 +107,8 @@ export function loadConfig(env = process.env) {
       user: env.ADMIN_SQL_DB_USER || '',
       password: env.ADMIN_SQL_DB_PASSWORD || '',
       maxRows: boundedInteger(env.ADMIN_SQL_MAX_ROWS, 200, 1, 1000),
-      timeoutMs: boundedInteger(env.ADMIN_SQL_TIMEOUT_MS, 3000, 500, 10000)
+      timeoutMs: boundedInteger(env.ADMIN_SQL_TIMEOUT_MS, 3000, 500, 10000),
+      maxRequestsPerMinute: boundedInteger(env.ADMIN_SQL_MAX_REQUESTS_PER_MINUTE, 10, 1, 60)
     },
     paddleOcr: {
       accessToken: env.PADDLEOCR_ACCESS_TOKEN || '',
@@ -115,7 +116,7 @@ export function loadConfig(env = process.env) {
       pollTimeoutMs: boundedInteger(env.PADDLEOCR_POLL_TIMEOUT_MS, 600000, 10000, 900000)
     },
     auth: {
-      jwtSecret: env.JWT_SECRET || undefined
+      jwtSecret: env.JWT_SECRET || 'dev-secret-do-not-use-in-production-change-me-immediately'
     },
     wechat: {
       miniAppId: env.WECHAT_MINI_APPID || '',
