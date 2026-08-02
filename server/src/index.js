@@ -1,9 +1,10 @@
-import { randomUUID as nodeRandomUUID, webcrypto } from 'node:crypto'
+import { randomUUID as nodeRandomUUID } from 'node:crypto'
 
-// Node 18 compat: langchain internals need globalThis.crypto with randomUUID
+// Polyfill: 确保 globalThis.crypto.randomUUID 在 Node 18 / 老容器中可用
 if (!globalThis.crypto) {
-  webcrypto.randomUUID = nodeRandomUUID
-  globalThis.crypto = webcrypto
+  globalThis.crypto = { randomUUID: nodeRandomUUID }
+} else if (typeof globalThis.crypto.randomUUID !== 'function') {
+  globalThis.crypto.randomUUID = nodeRandomUUID
 }
 
 import dotenv from 'dotenv'
