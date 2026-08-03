@@ -63,3 +63,15 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+
+## Health Stack
+
+- test: cd server && npm test
+- shell: shellcheck scripts/*.sh
+
+## gstack
+
+For all web browsing, always use the **/browse** skill from gstack. Never use `mcp__claude-in-chrome__*` tools for browsing.
+
+Available gstack skills:
+/browse, /setup-browser-cookies, /connect-chrome, /office-hours, /plan-ceo-review, /plan-eng-review, /plan-design-review, /plan-devex-review, /design-consultation, /design-review, /design-shotgun, /design-html, /review, /devex-review, /ship, /land-and-deploy, /canary, /benchmark, /qa, /qa-only, /retro, /investigate, /document-release, /document-generate, /codex, /cso, /autoplan, /careful, /freeze, /guard, /unfreeze, /setup-deploy, /setup-gbrain, /gstack-upgrade, /learn
