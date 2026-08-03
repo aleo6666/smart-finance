@@ -195,6 +195,58 @@ test('validateProductionConfig rejects weak email OTP secrets', () => {
   }
 })
 
+function loadProductionEmailConfig(overrides = {}) {
+  return loadConfig({
+    NODE_ENV: 'production',
+    DB_PASSWORD: 'strong-custom-database-password',
+    JWT_SECRET: 'strong-jwt-secret-at-least-32-characters',
+    SMTP_HOST: 'smtp.qq.com',
+    SMTP_USER: 'sender@example.com',
+    SMTP_PASS: 'smtp-app-password',
+    MAIL_FROM: 'Smart Finance <sender@example.com>',
+    EMAIL_OTP_SECRET: 'email-otp-secret-at-least-32-characters',
+    ...overrides
+  })
+}
+
+test('validateProductionConfig rejects the documented replace-with email OTP placeholder', () => {
+  const productionConfig = loadProductionEmailConfig({
+    EMAIL_OTP_SECRET: 'replace-with-random-secret-at-least-32-characters'
+  })
+
+  assert.throws(() => validateProductionConfig(productionConfig), {
+    message: 'EMAIL_OTP_SECRET must be changed in production to a strong random string of at least 32 characters'
+  })
+})
+
+test('validateProductionConfig rejects change-me email OTP placeholders case-insensitively', () => {
+  const productionConfig = loadProductionEmailConfig({
+    EMAIL_OTP_SECRET: 'email-otp-secret-CHANGE-ME-immediately'
+  })
+
+  assert.throws(() => validateProductionConfig(productionConfig), {
+    message: 'EMAIL_OTP_SECRET must be changed in production to a strong random string of at least 32 characters'
+  })
+})
+
+test('validateProductionConfig treats a whitespace-only email OTP secret as missing', () => {
+  const productionConfig = loadProductionEmailConfig({ EMAIL_OTP_SECRET: ' '.repeat(32) })
+
+  assert.throws(() => validateProductionConfig(productionConfig), {
+    message: 'SMTP_HOST, SMTP_USER, SMTP_PASS, MAIL_FROM and EMAIL_OTP_SECRET are required in production'
+  })
+})
+
+for (const smtpField of ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASS', 'MAIL_FROM']) {
+  test(`validateProductionConfig treats whitespace-only ${smtpField} as missing`, () => {
+    const productionConfig = loadProductionEmailConfig({ [smtpField]: '   ' })
+
+    assert.throws(() => validateProductionConfig(productionConfig), {
+      message: 'SMTP_HOST, SMTP_USER, SMTP_PASS, MAIL_FROM and EMAIL_OTP_SECRET are required in production'
+    })
+  })
+}
+
 test('loadConfig reads LM Studio and bounded RAG overrides', () => {
   const loaded = loadConfig({
     LM_STUDIO_BASE_URL: 'http://host.docker.internal:1234/v1/',

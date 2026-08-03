@@ -146,19 +146,25 @@ export function validateProductionConfig(configToValidate) {
   if (configToValidate.db.password === 'change-me-in-production') {
     throw new Error('DB_PASSWORD must be set in production to a strong custom password, cannot use default value')
   }
+  const emailOtpSecret = String(configToValidate.auth.emailOtpSecret ?? '').trim()
+  const requiredEmailFields = [
+    configToValidate.email.host,
+    configToValidate.email.user,
+    configToValidate.email.pass,
+    configToValidate.email.from,
+    emailOtpSecret
+  ]
   if (
-    !configToValidate.email.host ||
-    !configToValidate.email.user ||
-    !configToValidate.email.pass ||
-    !configToValidate.email.from ||
-    !configToValidate.auth.emailOtpSecret ||
-    configToValidate.auth.emailOtpSecret === 'dev-email-otp-secret-change-me-immediately'
+    requiredEmailFields.some((value) => !String(value ?? '').trim()) ||
+    emailOtpSecret === 'dev-email-otp-secret-change-me-immediately'
   ) {
     throw new Error('SMTP_HOST, SMTP_USER, SMTP_PASS, MAIL_FROM and EMAIL_OTP_SECRET are required in production')
   }
+  const normalizedEmailOtpSecret = emailOtpSecret.toLowerCase()
   if (
-    configToValidate.auth.emailOtpSecret.includes('change-me') ||
-    configToValidate.auth.emailOtpSecret.length < 32
+    normalizedEmailOtpSecret.includes('change-me') ||
+    normalizedEmailOtpSecret.startsWith('replace-with') ||
+    emailOtpSecret.length < 32
   ) {
     throw new Error('EMAIL_OTP_SECRET must be changed in production to a strong random string of at least 32 characters')
   }
