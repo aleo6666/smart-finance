@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 import {
@@ -9,6 +10,71 @@ import {
   requestForAuthMode
 } from '../src/utils/authForm.js'
 import { api } from '../src/utils/api.js'
+
+const loginPageSource = readFileSync(
+  new URL('../src/components/LoginPage.vue', import.meta.url),
+  'utf8'
+)
+
+test('login page defaults to email and renders an accessible channel-aware identity input', () => {
+  assert.match(loginPageSource, /const channel = ref\(['"]email['"]\)/)
+  assert.match(loginPageSource, /class="channel-bar"[^>]*aria-label="登录方式"/)
+  assert.match(loginPageSource, /type="button"[^>]*:class="\{ active: channel === 'email' \}"[^>]*:aria-pressed="channel === 'email'"/s)
+  assert.match(loginPageSource, /type="button"[^>]*:class="\{ active: channel === 'phone' \}"[^>]*:aria-pressed="channel === 'phone'"/s)
+  assert.match(loginPageSource, /v-model="identity"/)
+  assert.match(loginPageSource, /:type="channel === 'email' \? 'email' : 'tel'"/)
+  assert.match(loginPageSource, /:maxlength="channel === 'email' \? 254 : 11"/)
+  assert.match(loginPageSource, /:autocomplete="channel === 'email' \? 'email' : 'tel'"/)
+})
+
+test('login page uses shared auth helpers for all channel and mode requests', () => {
+  for (const helper of [
+    'isValidAuthIdentity',
+    'isValidAuthPassword',
+    'normalizeEmail',
+    'purposeForMode',
+    'requestForAuthMode'
+  ]) {
+    assert.match(loginPageSource, new RegExp(`\\b${helper}\\b`), helper)
+  }
+
+  assert.match(loginPageSource, /isValidAuthIdentity\(channel\.value, identity\.value\)/)
+  assert.match(loginPageSource, /api\.emailSendCode\(normalizeEmail\(identity\.value\), purposeForMode\(mode\.value\)\)/)
+  assert.match(loginPageSource, /requestForAuthMode\(api,\s*\{[\s\S]*?channel: channel\.value,[\s\S]*?mode: mode\.value/)
+})
+
+test('login page separates code delivery from submission and disables mutable controls', () => {
+  assert.match(loginPageSource, /const sendingCode = ref\(false\)/)
+  assert.match(loginPageSource, /if \(loading\.value \|\| sendingCode\.value\) return/g)
+  assert.match(loginPageSource, /sendingCode\.value = true[\s\S]*?finally\s*\{\s*sendingCode\.value = false/)
+  assert.match(loginPageSource, /:disabled="loading \|\| sendingCode"/)
+  assert.match(loginPageSource, /:disabled="[^"]*sendingCode[^"]*!identityValid[^"]*"/)
+})
+
+test('login page enforces strict verification codes and clears sensitive fields on switches', () => {
+  assert.match(loginPageSource, /inputmode="numeric"/)
+  assert.match(loginPageSource, /maxlength="6"/)
+  assert.match(loginPageSource, /autocomplete="one-time-code"/)
+  assert.match(loginPageSource, /!\/\^\[0-9\]\{6\}\$\/\.test\(code\.value\)/)
+  assert.match(loginPageSource, /function clearSensitiveFields\(\)\s*\{[\s\S]*?code\.value = ''[\s\S]*?password\.value = ''[\s\S]*?confirmPassword\.value = ''/)
+  assert.match(loginPageSource, /function switchMode\([^)]+\)\s*\{[\s\S]*?clearSensitiveFields\(\)[\s\S]*?stopCountdown\(\)/)
+  assert.match(loginPageSource, /function switchChannel\([^)]+\)\s*\{[\s\S]*?identity\.value = ''[\s\S]*?clearSensitiveFields\(\)[\s\S]*?stopCountdown\(\)/)
+})
+
+test('login page owns and disposes its verification countdown', () => {
+  assert.match(loginPageSource, /const verificationCountdown = ref\(0\)/)
+  assert.match(loginPageSource, /function stopCountdown\(\)\s*\{[\s\S]*?clearInterval\(countdownTimer\)[\s\S]*?countdownTimer = null[\s\S]*?verificationCountdown\.value = 0/)
+  assert.match(loginPageSource, /stopCountdown\(\)[\s\S]*?verificationCountdown\.value = 60[\s\S]*?setInterval/)
+  assert.match(loginPageSource, /onUnmounted\(stopCountdown\)/)
+})
+
+test('reset success survives the mode switch and credentials are never persisted or put in URLs', () => {
+  assert.match(loginPageSource, /loading\.value = false\s*switchMode\('login'\)\s*success\.value = '密码重置成功，请使用新密码登录'/)
+  assert.doesNotMatch(loginPageSource, /const phone = ref\(/)
+  assert.doesNotMatch(loginPageSource, /sms-row|btn-sms|smsCountdown/)
+  assert.doesNotMatch(loginPageSource, /localStorage|sessionStorage|URLSearchParams/)
+  assert.doesNotMatch(loginPageSource, /(?:router\.(?:push|replace)|query\s*:)[^\n]*(?:password|code)/i)
+})
 
 test('normalizeEmail trims and lowercases strings safely', () => {
   assert.equal(normalizeEmail(' User.Name+Tag@Example.COM '), 'user.name+tag@example.com')
