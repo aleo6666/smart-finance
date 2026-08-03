@@ -1,6 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { ensureUserEmailSchema, getCreateTableStatements } from '../src/schema.js'
+import {
+  ensureSchema,
+  ensureUserEmailSchema,
+  getCreateTableStatements
+} from '../src/schema.js'
 
 function getTableStatement(tableName) {
   return getCreateTableStatements().find((statement) =>
@@ -8,10 +12,22 @@ function getTableStatement(tableName) {
   )
 }
 
-function createUserEmailSchemaDb({ columns = [], indexes = [] } = {}) {
+function createUserEmailSchemaDb({
+  columns = [],
+  indexes = [],
+  columnAlterError,
+  columnsAfterColumnAlterError = [],
+  indexAlterError,
+  indexesAfterIndexAlterError = []
+} = {}) {
   const existingColumns = new Set(columns)
   const existingIndexes = new Set(indexes)
   const operations = []
+
+  function replaceSet(set, values) {
+    set.clear()
+    for (const value of values) set.add(value)
+  }
 
   return {
     operations,
@@ -23,25 +39,45 @@ function createUserEmailSchemaDb({ columns = [], indexes = [] } = {}) {
         },
         async alterTable(tableName, callback) {
           assert.equal(tableName, 'users')
+          let alterType
+
           callback({
             string(columnName, length) {
+              alterType = 'columns'
               operations.push(['string', columnName, length])
               existingColumns.add(columnName)
               return { nullable() {} }
             },
             dateTime(columnName) {
+              alterType = 'columns'
               operations.push(['dateTime', columnName])
               existingColumns.add(columnName)
               return { nullable() {} }
             },
             unique(columnNames, indexName) {
+              alterType = 'index'
               operations.push(['unique', columnNames, indexName])
               existingIndexes.add(indexName)
             }
           })
+
+          if (alterType === 'columns' && columnAlterError) {
+            replaceSet(existingColumns, columnsAfterColumnAlterError)
+            throw columnAlterError
+          }
+
+          if (alterType === 'index' && indexAlterError) {
+            replaceSet(existingIndexes, indexesAfterIndexAlterError)
+            throw indexAlterError
+          }
         }
       },
       async raw(sql) {
+        if (sql.startsWith('CREATE TABLE')) {
+          operations.push(['raw', sql])
+          return []
+        }
+
         assert.equal(sql, "SHOW INDEX FROM users WHERE Key_name = 'uniq_users_email'")
         return [[...existingIndexes].map((Key_name) => ({ Key_name })), []]
       }
@@ -73,6 +109,97 @@ test('ensureUserEmailSchema adds missing email schema once', async () => {
   await ensureUserEmailSchema(db)
 
   assert.deepEqual(operations, [])
+})
+
+test('ensureUserEmailSchema tolerates concurrent duplicate column and index creation', async () => {
+  const duplicateColumnError = Object.assign(new Error('duplicate column'), {
+    code: 'ER_DUP_FIELDNAME'
+  })
+  const duplicateIndexError = Object.assign(new Error('duplicate key'), { errno: 1061 })
+  const { db, operations } = createUserEmailSchemaDb({
+    columnAlterError: duplicateColumnError,
+    columnsAfterColumnAlterError: ['email', 'email_verified_at'],
+    indexAlterError: duplicateIndexError,
+    indexesAfterIndexAlterError: ['uniq_users_email']
+  })
+
+  await ensureUserEmailSchema(db)
+
+  assert.deepEqual(operations, [
+    ['string', 'email', 254],
+    ['dateTime', 'email_verified_at'],
+    ['unique', ['email'], 'uniq_users_email']
+  ])
+})
+
+test('ensureUserEmailSchema rethrows duplicate column errors when columns remain incomplete', async () => {
+  const duplicateColumnError = Object.assign(new Error('duplicate column'), { errno: 1060 })
+  const { db } = createUserEmailSchemaDb({
+    columnAlterError: duplicateColumnError,
+    columnsAfterColumnAlterError: ['email']
+  })
+
+  await assert.rejects(
+    ensureUserEmailSchema(db),
+    (error) => error === duplicateColumnError
+  )
+})
+
+test('ensureUserEmailSchema rethrows duplicate index errors when the index remains missing', async () => {
+  const duplicateIndexError = Object.assign(new Error('duplicate key'), {
+    code: 'ER_DUP_KEYNAME'
+  })
+  const { db } = createUserEmailSchemaDb({
+    columns: ['email', 'email_verified_at'],
+    indexAlterError: duplicateIndexError
+  })
+
+  await assert.rejects(
+    ensureUserEmailSchema(db),
+    (error) => error === duplicateIndexError
+  )
+})
+
+test('ensureUserEmailSchema rethrows unrelated DDL errors', async () => {
+  const ddlError = Object.assign(new Error('lock wait timeout'), {
+    code: 'ER_LOCK_WAIT_TIMEOUT'
+  })
+  const { db } = createUserEmailSchemaDb({
+    columnAlterError: ddlError,
+    columnsAfterColumnAlterError: ['email', 'email_verified_at']
+  })
+
+  await assert.rejects(
+    ensureUserEmailSchema(db),
+    (error) => error === ddlError
+  )
+})
+
+test('ensureUserEmailSchema adds only the missing email index', async () => {
+  const { db, operations } = createUserEmailSchemaDb({
+    columns: ['email', 'email_verified_at']
+  })
+
+  await ensureUserEmailSchema(db)
+
+  assert.deepEqual(operations, [
+    ['unique', ['email'], 'uniq_users_email']
+  ])
+})
+
+test('ensureSchema upgrades the user email schema after creating tables', async () => {
+  const { db, operations } = createUserEmailSchemaDb()
+  const createStatementCount = getCreateTableStatements().length
+
+  await ensureSchema(db)
+
+  assert.equal(operations.length, createStatementCount + 3)
+  assert.ok(operations.slice(0, createStatementCount).every(([type]) => type === 'raw'))
+  assert.deepEqual(operations.slice(createStatementCount), [
+    ['string', 'email', 254],
+    ['dateTime', 'email_verified_at'],
+    ['unique', ['email'], 'uniq_users_email']
+  ])
 })
 
 test('schema contains core and phase 1 tables', () => {

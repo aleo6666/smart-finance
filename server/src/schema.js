@@ -380,25 +380,54 @@ export function getCreateTableStatements() {
   ]
 }
 
-export async function ensureUserEmailSchema(db) {
+async function getUserEmailColumnState(db) {
   const hasEmail = await db.schema.hasColumn('users', 'email')
   const hasEmailVerifiedAt = await db.schema.hasColumn('users', 'email_verified_at')
 
-  if (!hasEmail || !hasEmailVerifiedAt) {
-    await db.schema.alterTable('users', (table) => {
-      if (!hasEmail) table.string('email', 254).nullable()
-      if (!hasEmailVerifiedAt) table.dateTime('email_verified_at').nullable()
-    })
-  }
+  return { hasEmail, hasEmailVerifiedAt }
+}
 
+async function hasUserEmailIndex(db) {
   const [emailIndexes] = await db.raw(
     "SHOW INDEX FROM users WHERE Key_name = 'uniq_users_email'"
   )
 
-  if (emailIndexes.length === 0) {
-    await db.schema.alterTable('users', (table) => {
-      table.unique(['email'], 'uniq_users_email')
-    })
+  return emailIndexes.length > 0
+}
+
+function isDuplicateColumnError(error) {
+  return error?.code === 'ER_DUP_FIELDNAME' || error?.errno === 1060
+}
+
+function isDuplicateIndexError(error) {
+  return error?.code === 'ER_DUP_KEYNAME' || error?.errno === 1061
+}
+
+export async function ensureUserEmailSchema(db) {
+  const { hasEmail, hasEmailVerifiedAt } = await getUserEmailColumnState(db)
+
+  if (!hasEmail || !hasEmailVerifiedAt) {
+    try {
+      await db.schema.alterTable('users', (table) => {
+        if (!hasEmail) table.string('email', 254).nullable()
+        if (!hasEmailVerifiedAt) table.dateTime('email_verified_at').nullable()
+      })
+    } catch (error) {
+      if (!isDuplicateColumnError(error)) throw error
+
+      const currentColumns = await getUserEmailColumnState(db)
+      if (!currentColumns.hasEmail || !currentColumns.hasEmailVerifiedAt) throw error
+    }
+  }
+
+  if (!(await hasUserEmailIndex(db))) {
+    try {
+      await db.schema.alterTable('users', (table) => {
+        table.unique(['email'], 'uniq_users_email')
+      })
+    } catch (error) {
+      if (!isDuplicateIndexError(error) || !(await hasUserEmailIndex(db))) throw error
+    }
   }
 }
 
