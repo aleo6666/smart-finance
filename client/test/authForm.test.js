@@ -27,6 +27,13 @@ test('login page defaults to email and renders an accessible channel-aware ident
   assert.match(loginPageSource, /:autocomplete="channel === 'email' \? 'email' : 'tel'"/)
 })
 
+test('login page labels every authentication input for assistive technology', () => {
+  for (const id of ['auth-identity', 'auth-code', 'auth-password', 'auth-confirm-password']) {
+    assert.match(loginPageSource, new RegExp(`<label for="${id}">`), id)
+    assert.match(loginPageSource, new RegExp(`<input\\s+[\\s\\S]*?id="${id}"`), id)
+  }
+})
+
 test('login page uses shared auth helpers for all channel and mode requests', () => {
   for (const helper of [
     'isValidAuthIdentity',
@@ -46,7 +53,7 @@ test('login page uses shared auth helpers for all channel and mode requests', ()
 test('login page separates code delivery from submission and disables mutable controls', () => {
   assert.match(loginPageSource, /const sendingCode = ref\(false\)/)
   assert.match(loginPageSource, /if \(loading\.value \|\| sendingCode\.value\) return/g)
-  assert.match(loginPageSource, /sendingCode\.value = true[\s\S]*?finally\s*\{\s*sendingCode\.value = false/)
+  assert.match(loginPageSource, /sendingCode\.value = true[\s\S]*?finally\s*\{\s*if \(!disposed\) sendingCode\.value = false/)
   assert.match(loginPageSource, /:disabled="loading \|\| sendingCode"/)
   assert.match(loginPageSource, /:disabled="[^"]*sendingCode[^"]*!identityValid[^"]*"/)
 })
@@ -65,7 +72,33 @@ test('login page owns and disposes its verification countdown', () => {
   assert.match(loginPageSource, /const verificationCountdown = ref\(0\)/)
   assert.match(loginPageSource, /function stopCountdown\(\)\s*\{[\s\S]*?clearInterval\(countdownTimer\)[\s\S]*?countdownTimer = null[\s\S]*?verificationCountdown\.value = 0/)
   assert.match(loginPageSource, /stopCountdown\(\)[\s\S]*?verificationCountdown\.value = 60[\s\S]*?setInterval/)
-  assert.match(loginPageSource, /onUnmounted\(stopCountdown\)/)
+  assert.match(loginPageSource, /let disposed = false/)
+  assert.match(loginPageSource, /onUnmounted\(\(\) => \{\s*disposed = true\s*stopCountdown\(\)\s*\}\)/)
+})
+
+test('async authentication paths stop updating component state after unmount', () => {
+  const sendCodeBlock = loginPageSource.match(/async function sendCode\(\)[\s\S]*?(?=\nasync function doSubmit)/)?.[0] ?? ''
+  const submitBlock = loginPageSource.match(/async function doSubmit\(\)[\s\S]*?(?=\nasync function doMockLogin)/)?.[0] ?? ''
+  const mockBlock = loginPageSource.match(/async function doMockLogin\(\)[\s\S]*?(?=\nfunction showWechatTip)/)?.[0] ?? ''
+  const mountedBlock = loginPageSource.match(/onMounted\(async \(\) => \{[\s\S]*?(?=\n\}\)\n<\/script>)/)?.[0] ?? ''
+
+  assert.match(sendCodeBlock, /: await api\.sendCode\(identity\.value\)\s*if \(disposed\) return\s*if \(res\.success\)/)
+  assert.match(sendCodeBlock, /catch \(e\) \{\s*if \(!disposed\) error\.value =/)
+  assert.match(sendCodeBlock, /finally \{\s*if \(!disposed\) sendingCode\.value = false/)
+
+  assert.match(submitBlock, /password: password\.value\s*\}\)\s*if \(disposed\) return\s*if \(res\.success\)/)
+  assert.match(submitBlock, /await store\.loadUser\(\)\s*if \(disposed\) return\s*router\.push\('\/'\)/)
+  assert.match(submitBlock, /catch \(e\) \{\s*if \(!disposed\) error\.value =/)
+  assert.match(submitBlock, /finally \{\s*if \(!disposed\) loading\.value = false/)
+
+  assert.match(mockBlock, /await api\.mockLogin\(\)\s*if \(disposed\) return\s*if \(res\.success\)/)
+  assert.match(mockBlock, /await store\.loadUser\(\)\s*if \(disposed\) return\s*router\.push\('\/'\)/)
+  assert.match(mockBlock, /catch \(e\) \{\s*if \(!disposed\) error\.value =/)
+  assert.match(mockBlock, /finally \{\s*if \(!disposed\) loading\.value = false/)
+
+  assert.match(mountedBlock, /await store\.loadUser\(\)\s*if \(disposed\) return\s*router\.replace/)
+  assert.match(mountedBlock, /catch \(e\) \{\s*if \(!disposed\) \{[\s\S]*?error\.value =/)
+  assert.match(mountedBlock, /finally \{\s*if \(!disposed\) loading\.value = false/)
 })
 
 test('reset success survives the mode switch and credentials are never persisted or put in URLs', () => {

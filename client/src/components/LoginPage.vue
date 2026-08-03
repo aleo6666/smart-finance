@@ -30,8 +30,9 @@
 
       <form @submit.prevent="doSubmit" class="login-form">
         <div class="field">
-          <label>{{ channel === 'email' ? '邮箱' : '手机号' }}</label>
+          <label for="auth-identity">{{ channel === 'email' ? '邮箱' : '手机号' }}</label>
           <input
+            id="auth-identity"
             v-model="identity"
             :type="channel === 'email' ? 'email' : 'tel'"
             :placeholder="channel === 'email' ? '请输入邮箱' : '请输入手机号'"
@@ -44,9 +45,10 @@
 
         <!-- 注册 / 忘记密码验证码 -->
         <div class="field" v-if="mode !== 'login'">
-          <label>验证码</label>
+          <label for="auth-code">验证码</label>
           <div class="code-row">
             <input
+              id="auth-code"
               v-model="code"
               type="text"
               inputmode="numeric"
@@ -69,8 +71,9 @@
 
         <!-- 密码 — 登录 / 注册都有 -->
         <div class="field">
-          <label>密码</label>
+          <label for="auth-password">密码</label>
           <input
+            id="auth-password"
             v-model="password"
             type="password"
             :placeholder="mode === 'login' ? '请输入密码' : '请输入新密码（至少6位）'"
@@ -82,8 +85,9 @@
 
         <!-- 确认密码 — 注册 / 重置 -->
         <div class="field" v-if="mode !== 'login'">
-          <label>确认密码</label>
+          <label for="auth-confirm-password">确认密码</label>
           <input
+            id="auth-confirm-password"
             v-model="confirmPassword"
             type="password"
             placeholder="再次输入密码"
@@ -146,6 +150,7 @@ const verificationCountdown = ref(0)
 const isDev = ref(window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
 
 let countdownTimer = null
+let disposed = false
 
 const identityValid = computed(() => isValidAuthIdentity(channel.value, identity.value))
 
@@ -199,6 +204,7 @@ async function sendCode() {
     const res = channel.value === 'email'
       ? await api.emailSendCode(normalizeEmail(identity.value), purposeForMode(mode.value))
       : await api.sendCode(identity.value)
+    if (disposed) return
     if (res.success) {
       success.value = res.message || '验证码已发送'
       stopCountdown()
@@ -211,9 +217,9 @@ async function sendCode() {
       error.value = res.error || res.message || '发送失败'
     }
   } catch (e) {
-    error.value = e.message || '发送失败'
+    if (!disposed) error.value = e.message || '发送失败'
   } finally {
-    sendingCode.value = false
+    if (!disposed) sendingCode.value = false
   }
 }
 
@@ -256,6 +262,7 @@ async function doSubmit() {
       code: code.value,
       password: password.value
     })
+    if (disposed) return
 
     if (res.success) {
       if (mode.value === 'reset') {
@@ -265,15 +272,16 @@ async function doSubmit() {
       } else {
         store.setToken(res.data.token)
         await store.loadUser()
+        if (disposed) return
         router.push('/')
       }
     } else {
       error.value = res.error || '操作失败'
     }
   } catch (e) {
-    error.value = e.message || '网络错误'
+    if (!disposed) error.value = e.message || '网络错误'
   } finally {
-    loading.value = false
+    if (!disposed) loading.value = false
   }
 }
 
@@ -283,17 +291,19 @@ async function doMockLogin() {
   error.value = ''
   try {
     const res = await api.mockLogin()
+    if (disposed) return
     if (res.success) {
       store.setToken(res.data.token)
       await store.loadUser()
+      if (disposed) return
       router.push('/')
     } else {
       error.value = res.error || '登录失败'
     }
   } catch (e) {
-    error.value = e.message || '网络错误'
+    if (!disposed) error.value = e.message || '网络错误'
   } finally {
-    loading.value = false
+    if (!disposed) loading.value = false
   }
 }
 
@@ -301,7 +311,10 @@ function showWechatTip() {
   error.value = '微信小程序登录需在微信内打开小程序使用。Web 端请使用邮箱或手机号登录。'
 }
 
-onUnmounted(stopCountdown)
+onUnmounted(() => {
+  disposed = true
+  stopCountdown()
+})
 
 onMounted(async () => {
   const token = route.query.token
@@ -310,12 +323,15 @@ onMounted(async () => {
     store.setToken(token)
     try {
       await store.loadUser()
+      if (disposed) return
       router.replace({ path: '/', query: {} })
     } catch (e) {
-      error.value = '加载用户信息失败'
-      store.logout()
+      if (!disposed) {
+        error.value = '加载用户信息失败'
+        store.logout()
+      }
     } finally {
-      loading.value = false
+      if (!disposed) loading.value = false
     }
   }
 })
