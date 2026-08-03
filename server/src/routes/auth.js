@@ -6,28 +6,12 @@ import { code2Session, mpAuthorizeUrl, mpCode2Session } from '../services/wechat
 import { signToken, authMiddleware } from '../middleware/auth.js'
 import { createLogger } from '../utils/logger.js'
 import { sendVerificationCode, verifyCode } from '../services/sms.js'
+import { createDefaultLedger, migrateGuestRecords } from '../services/authAccount.js'
 
 const logger = createLogger('Auth')
 const router = Router()
 const SALT_ROUNDS = 10
 const MAX_LOGIN_ATTEMPTS = 5
-
-async function createDefaultLedger(userId) {
-  const existing = await db('ledgers').where({ user_id: userId }).first()
-  if (!existing) {
-    await db('ledgers').insert({ user_id: userId, name: '我的账本', base_currency: 'CNY' })
-  }
-}
-
-async function migrateGuestRecords(userId, deviceId) {
-  if (!deviceId || deviceId === 'null' || deviceId === 'undefined') return
-  const updated = await db('records')
-    .where({ device_id: deviceId, user_id: null })
-    .update({ user_id: userId })
-  if (updated > 0) {
-    console.log(`[Auth] migrated ${updated} guest records → user ${userId}`)
-  }
-}
 
 // ============================================================
 // 发送短信验证码
