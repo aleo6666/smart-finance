@@ -7,7 +7,15 @@
  * - 支持日志级别控制
  */
 
-const SENSITIVE_KEYS = ['password', 'secret', 'token', 'key', 'apiKey', 'api_key', 'authorization', 'bearer']
+const SENSITIVE_KEYS = new Set([
+  'authorization',
+  'bearer',
+  'smtppass',
+  'otp',
+  'code',
+  'verificationcode'
+])
+const SENSITIVE_KEY_FRAGMENTS = ['password', 'secret', 'token', 'key']
 
 function mask(value) {
   const s = String(value)
@@ -15,9 +23,31 @@ function mask(value) {
   return s.slice(0, 2) + '****' + s.slice(-2)
 }
 
+function maskEmail(value) {
+  let email
+  try {
+    email = String(value ?? '')
+  } catch {
+    return '****'
+  }
+
+  const at = email.lastIndexOf('@')
+  if (at <= 0 || at === email.length - 1) return mask(email)
+
+  const local = email.slice(0, at)
+  const domain = email.slice(at + 1)
+  const maskedLocal = local.length === 1
+    ? `${local[0]}***`
+    : `${local[0]}***${local.at(-1)}`
+  return `${maskedLocal}@${domain}`
+}
+
 function isSensitiveKey(key) {
   const lower = key.toLowerCase()
-  return SENSITIVE_KEYS.some(k => lower.includes(k))
+  const normalized = lower.replace(/[_-]/g, '')
+  if (normalized === 'errorcode') return false
+  return SENSITIVE_KEYS.has(normalized) ||
+    SENSITIVE_KEY_FRAGMENTS.some(fragment => lower.includes(fragment))
 }
 
 function cleanObject(obj) {
@@ -26,6 +56,8 @@ function cleanObject(obj) {
   for (const key of Object.keys(cleaned)) {
     if (isSensitiveKey(key)) {
       cleaned[key] = '***REDACTED***'
+    } else if (key.toLowerCase() === 'email') {
+      cleaned[key] = maskEmail(cleaned[key])
     } else if (key === 'phone' && typeof cleaned[key] === 'string') {
       cleaned[key] = mask(cleaned[key])
     } else if (key === 'openid' && typeof cleaned[key] === 'string') {
