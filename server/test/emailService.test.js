@@ -75,6 +75,44 @@ test('sendVerificationCode rejects unsupported purposes before sending', async (
   assert.equal(transport.messages.length, 0)
 })
 
+test('sendVerificationCode rejects invalid codes before sending', async t => {
+  for (const code of ['12345', '1234567', '12a456', '<b>123456</b>']) {
+    await t.test(code, async () => {
+      const transport = createTransport()
+      const service = createEmailService({ transport, from: 'sender@example.com' })
+
+      await assert.rejects(
+        service.sendVerificationCode({
+          to: 'user@example.com',
+          code,
+          purpose: 'register'
+        }),
+        { message: 'Invalid verification code' }
+      )
+      assert.equal(transport.messages.length, 0)
+    })
+  }
+})
+
+test('sendVerificationCode returns a fixed error for non-string purposes', async t => {
+  for (const purpose of [Symbol('register'), 1, null]) {
+    await t.test(String(purpose), async () => {
+      const transport = createTransport()
+      const service = createEmailService({ transport, from: 'sender@example.com' })
+
+      await assert.rejects(
+        service.sendVerificationCode({
+          to: 'user@example.com',
+          code: '123456',
+          purpose
+        }),
+        { message: 'Unsupported verification purpose' }
+      )
+      assert.equal(transport.messages.length, 0)
+    })
+  }
+})
+
 test('sendVerificationCode propagates transport failures unchanged', async () => {
   const transportError = new Error('SMTP unavailable')
   const service = createEmailService({

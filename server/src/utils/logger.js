@@ -10,32 +10,54 @@
 const SENSITIVE_KEYS = new Set([
   'authorization',
   'bearer',
+  'key',
+  'pass',
+  'password',
+  'secret',
   'smtppass',
+  'token',
   'otp',
   'code',
-  'verificationcode'
+  'verificationcode',
+  'apikey'
 ])
-const SENSITIVE_KEY_FRAGMENTS = ['password', 'secret', 'token', 'key']
+const SENSITIVE_KEY_SUFFIXES = ['secret', 'token', 'apikey', 'password']
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/g
+
+function cleanString(value) {
+  try {
+    return String(value ?? '').replace(CONTROL_CHARACTERS, ' ')
+  } catch {
+    return '****'
+  }
+}
 
 function mask(value) {
-  const s = String(value)
+  const s = cleanString(value)
   if (s.length <= 4) return '****'
   return s.slice(0, 2) + '****' + s.slice(-2)
 }
 
 function maskEmail(value) {
-  let email
+  let originalEmail
   try {
-    email = String(value ?? '')
+    originalEmail = String(value ?? '')
   } catch {
     return '****'
   }
+  const rawEmail = cleanString(originalEmail)
+  if (rawEmail !== originalEmail) return mask(rawEmail)
 
-  const at = email.lastIndexOf('@')
-  if (at <= 0 || at === email.length - 1) return mask(email)
+  const parts = rawEmail.split('@')
+  if (parts.length !== 2) return mask(rawEmail)
 
-  const local = email.slice(0, at)
-  const domain = email.slice(at + 1)
+  const [local, domain] = parts
+  const validLocal = /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+$/.test(local)
+  const validDomain = domain.split('.').every(label =>
+    /^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/.test(label)
+  )
+  if (!validLocal || !validDomain) return mask(rawEmail)
+
   const maskedLocal = local.length === 1
     ? `${local[0]}***`
     : `${local[0]}***${local.at(-1)}`
@@ -43,30 +65,51 @@ function maskEmail(value) {
 }
 
 function isSensitiveKey(key) {
-  const lower = key.toLowerCase()
-  const normalized = lower.replace(/[_-]/g, '')
+  const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, '')
   if (normalized === 'errorcode') return false
   return SENSITIVE_KEYS.has(normalized) ||
-    SENSITIVE_KEY_FRAGMENTS.some(fragment => lower.includes(fragment))
+    SENSITIVE_KEY_SUFFIXES.some(suffix => normalized.endsWith(suffix))
+}
+
+function cleanValue(value, key, seen) {
+  if (key && isSensitiveKey(key)) return '***REDACTED***'
+  if (key?.toLowerCase() === 'email') return maskEmail(value)
+  if ((key === 'phone' || key === 'openid') && typeof value === 'string') {
+    return mask(value)
+  }
+
+  if (value && typeof value === 'object') {
+    if (seen.has(value)) return '[Circular]'
+    seen.add(value)
+
+    let cleaned
+    if (Array.isArray(value)) {
+      cleaned = value.map(item => cleanValue(item, undefined, seen))
+    } else {
+      cleaned = {}
+      for (const [nestedKey, nestedValue] of Object.entries(value)) {
+        cleaned[cleanString(nestedKey)] = cleanValue(nestedValue, nestedKey, seen)
+      }
+    }
+    seen.delete(value)
+    return cleaned
+  }
+
+  if (typeof value === 'string') {
+    const cleaned = cleanString(value)
+    if (cleaned.includes('@')) return maskEmail(value)
+    if (!key && /^\d{6}$/.test(cleaned)) return '***REDACTED***'
+    return cleaned
+  }
+  if (typeof value === 'bigint' || typeof value === 'symbol' || typeof value === 'function') {
+    return cleanString(value)
+  }
+  return value
 }
 
 function cleanObject(obj) {
   if (!obj || typeof obj !== 'object') return obj
-  const cleaned = { ...obj }
-  for (const key of Object.keys(cleaned)) {
-    if (isSensitiveKey(key)) {
-      cleaned[key] = '***REDACTED***'
-    } else if (key.toLowerCase() === 'email') {
-      cleaned[key] = maskEmail(cleaned[key])
-    } else if (key === 'phone' && typeof cleaned[key] === 'string') {
-      cleaned[key] = mask(cleaned[key])
-    } else if (key === 'openid' && typeof cleaned[key] === 'string') {
-      cleaned[key] = mask(cleaned[key])
-    } else if (typeof cleaned[key] === 'string' && cleaned[key].length > 80 && isSensitiveKey(key)) {
-      cleaned[key] = '***REDACTED***'
-    }
-  }
-  return cleaned
+  return cleanValue(obj, undefined, new WeakSet())
 }
 
 const LEVELS = { error: 0, warn: 1, info: 2, debug: 3 }
@@ -79,10 +122,13 @@ function getLevel() {
 
 function formatMessage(level, module, message, extra) {
   const timestamp = new Date().toISOString()
-  let line = `[${timestamp}] [${level.toUpperCase()}] [${module}] ${message}`
+  let line = `[${timestamp}] [${level.toUpperCase()}] [${cleanString(module)}] ${cleanString(message)}`
   if (extra && typeof extra === 'object') {
     const cleaned = cleanObject(extra)
-    const pairs = Object.entries(cleaned).map(([k, v]) => `${k}=${v}`).join(' | ')
+    const pairs = Object.entries(cleaned).map(([k, v]) => {
+      const formatted = v && typeof v === 'object' ? JSON.stringify(v) : v
+      return `${cleanString(k)}=${formatted}`
+    }).join(' | ')
     if (pairs) line += ` | ${pairs}`
   }
   return line

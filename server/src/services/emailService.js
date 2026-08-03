@@ -8,8 +8,11 @@ const PURPOSE_LABEL = Object.freeze({
 export function createEmailService({ transport, from }) {
   return {
     async sendVerificationCode({ to, code, purpose }) {
-      if (!Object.hasOwn(PURPOSE_LABEL, purpose)) {
-        throw new Error(`Unsupported verification purpose: ${purpose}`)
+      if (typeof purpose !== 'string' || !Object.hasOwn(PURPOSE_LABEL, purpose)) {
+        throw new Error('Unsupported verification purpose')
+      }
+      if (typeof code !== 'string' || !/^\d{6}$/.test(code)) {
+        throw new Error('Invalid verification code')
       }
 
       const label = PURPOSE_LABEL[purpose]
