@@ -1,12 +1,80 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { getCreateTableStatements } from '../src/schema.js'
+import { ensureUserEmailSchema, getCreateTableStatements } from '../src/schema.js'
 
 function getTableStatement(tableName) {
   return getCreateTableStatements().find((statement) =>
     statement.includes(`CREATE TABLE IF NOT EXISTS ${tableName}`)
   )
 }
+
+function createUserEmailSchemaDb({ columns = [], indexes = [] } = {}) {
+  const existingColumns = new Set(columns)
+  const existingIndexes = new Set(indexes)
+  const operations = []
+
+  return {
+    operations,
+    db: {
+      schema: {
+        async hasColumn(tableName, columnName) {
+          assert.equal(tableName, 'users')
+          return existingColumns.has(columnName)
+        },
+        async alterTable(tableName, callback) {
+          assert.equal(tableName, 'users')
+          callback({
+            string(columnName, length) {
+              operations.push(['string', columnName, length])
+              existingColumns.add(columnName)
+              return { nullable() {} }
+            },
+            dateTime(columnName) {
+              operations.push(['dateTime', columnName])
+              existingColumns.add(columnName)
+              return { nullable() {} }
+            },
+            unique(columnNames, indexName) {
+              operations.push(['unique', columnNames, indexName])
+              existingIndexes.add(indexName)
+            }
+          })
+        }
+      },
+      async raw(sql) {
+        assert.equal(sql, "SHOW INDEX FROM users WHERE Key_name = 'uniq_users_email'")
+        return [[...existingIndexes].map((Key_name) => ({ Key_name })), []]
+      }
+    }
+  }
+}
+
+test('users schema defines verified email identity fields and unique index', () => {
+  const usersSql = getTableStatement('users')
+
+  assert.ok(usersSql)
+  assert.match(usersSql, /email\s+VARCHAR\(254\)/)
+  assert.match(usersSql, /email_verified_at\s+DATETIME NULL/)
+  assert.match(usersSql, /UNIQUE KEY uniq_users_email \(email\)/)
+})
+
+test('ensureUserEmailSchema adds missing email schema once', async () => {
+  const { db, operations } = createUserEmailSchemaDb({
+    columns: ['email_verified_at']
+  })
+
+  await ensureUserEmailSchema(db)
+
+  assert.deepEqual(operations, [
+    ['string', 'email', 254],
+    ['unique', ['email'], 'uniq_users_email']
+  ])
+
+  operations.length = 0
+  await ensureUserEmailSchema(db)
+
+  assert.deepEqual(operations, [])
+})
 
 test('schema contains core and phase 1 tables', () => {
   const sql = getCreateTableStatements().join('\n')

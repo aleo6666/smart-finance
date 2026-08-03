@@ -6,12 +6,15 @@ export function getCreateTableStatements() {
       mp_openid VARCHAR(128) UNIQUE,
       unionid VARCHAR(128),
       phone VARCHAR(32),
+      email VARCHAR(254),
+      email_verified_at DATETIME NULL,
       nickname VARCHAR(128),
       avatar TEXT,
       password VARCHAR(255),
       username VARCHAR(128) UNIQUE,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       last_login_at DATETIME NULL,
+      UNIQUE KEY uniq_users_email (email),
       KEY idx_users_unionid (unionid)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 
@@ -377,8 +380,32 @@ export function getCreateTableStatements() {
   ]
 }
 
+export async function ensureUserEmailSchema(db) {
+  const hasEmail = await db.schema.hasColumn('users', 'email')
+  const hasEmailVerifiedAt = await db.schema.hasColumn('users', 'email_verified_at')
+
+  if (!hasEmail || !hasEmailVerifiedAt) {
+    await db.schema.alterTable('users', (table) => {
+      if (!hasEmail) table.string('email', 254).nullable()
+      if (!hasEmailVerifiedAt) table.dateTime('email_verified_at').nullable()
+    })
+  }
+
+  const [emailIndexes] = await db.raw(
+    "SHOW INDEX FROM users WHERE Key_name = 'uniq_users_email'"
+  )
+
+  if (emailIndexes.length === 0) {
+    await db.schema.alterTable('users', (table) => {
+      table.unique(['email'], 'uniq_users_email')
+    })
+  }
+}
+
 export async function ensureSchema(db) {
   for (const statement of getCreateTableStatements()) {
     await db.raw(statement)
   }
+
+  await ensureUserEmailSchema(db)
 }
