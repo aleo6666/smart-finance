@@ -31,6 +31,7 @@ import visionRouter from './routes/vision.js'
 import feedbackRouter from './routes/feedback.js'
 import exchangeRouter from './routes/exchange.js'
 import authRouter from './routes/auth.js'
+import { createDefaultEmailAuthRouter } from './routes/emailAuth.js'
 import ledgersRouter from './routes/ledgers.js'
 import shareRouter from './routes/share.js'
 import exportRouter from './routes/export.js'
@@ -80,6 +81,7 @@ app.use('/api/vision', visionRouter)
 app.use('/api/feedback', feedbackRouter)
 app.use('/api/exchange', exchangeRouter)
 app.use('/api/auth', authRouter)
+app.use('/api/auth/email', createDefaultEmailAuthRouter())
 app.use('/api/ledgers', ledgersRouter)
 app.use('/api/share', shareRouter)
 app.use('/api/export', strictLimiter, exportRouter)

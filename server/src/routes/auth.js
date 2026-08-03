@@ -288,7 +288,7 @@ router.post('/bind-phone', authMiddleware, async (req, res) => {
 // ============================================================
 router.get('/me', authMiddleware, async (req, res) => {
   const user = await db('users')
-    .select('id', 'username', 'nickname', 'phone', 'avatar')
+    .select('id', 'username', 'nickname', 'phone', 'avatar', 'email', 'email_verified_at')
     .where({ id: req.userId })
     .first()
   const ledgers = await db('ledgers').where({ user_id: req.userId }).orderBy('created_at')
