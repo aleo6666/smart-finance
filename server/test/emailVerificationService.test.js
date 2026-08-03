@@ -15,10 +15,11 @@ const INVALID_CODE_RESULT = {
 }
 
 class FakeRedis {
-  constructor({ status = 'ready', failures = [], consumeResult } = {}) {
+  constructor({ status = 'ready', failures = [], consumeResult, rateResult } = {}) {
     this.status = status
     this.failures = new Set(failures)
     this.consumeResult = consumeResult
+    this.rateResult = rateResult
     this.calls = []
     this.values = new Map()
     this.expiries = new Map()
@@ -121,9 +122,22 @@ class FakeRedis {
     const argv = args.slice(keyCount)
 
     if (script.includes('email-verification:rate-limit')) {
-      const current = await this.incr(keys[0])
-      if (current === 1) await this.expire(keys[0], Number(argv[0]))
-      return current
+      if (this.rateResult !== undefined) return this.rateResult
+      const [addressKey, ipKey] = keys
+      const [ttl, addressLimit, ipLimit] = argv.map(Number)
+      const addressCurrent = Number(this.values.get(addressKey) ?? 0)
+      const ipCurrent = Number(this.values.get(ipKey) ?? 0)
+      if (addressCurrent >= addressLimit || ipCurrent >= ipLimit) return 0
+
+      for (const [key, current] of [[addressKey, addressCurrent], [ipKey, ipCurrent]]) {
+        this.calls.push(['incr', key])
+        this.values.set(key, String(current + 1))
+        if (current === 0) {
+          this.calls.push(['expire', key, ttl])
+          this.expiries.set(key, ttl)
+        }
+      }
+      return 1
     }
 
     if (script.includes('email-verification:login-failure')) {
@@ -260,8 +274,21 @@ test('sendCode sets exact cooldown, rate, OTP, and attempts TTLs', async () => {
   assert.equal(otpCalls.length, 2)
   assert.equal(otpCalls.every(call => call.at(-2) === 'EX' && call.at(-1) === 300), true)
   const rateCalls = redis.calls.filter(call => call[0] === 'eval' && call[1].includes('rate-limit'))
-  assert.equal(rateCalls.length, 2)
-  assert.equal(rateCalls.every(call => call.at(-1) === 3600), true)
+  assert.equal(rateCalls.length, 1)
+  const [operation, script, keyCount, addressKey, ipKey, ...rateArguments] = rateCalls[0]
+  assert.equal(operation, 'eval')
+  assert.equal(keyCount, 2)
+  assert.match(addressKey, /^email:rate:address:[a-f0-9]{64}$/)
+  assert.match(ipKey, /^email:rate:ip:[a-f0-9]{64}$/)
+  assert.deepEqual(rateArguments, [3600, 5, 20])
+  assert.match(script, /GET', KEYS\[1\]/)
+  assert.match(script, /GET', KEYS\[2\]/)
+  assert.match(script, /ARGV\[1\]/)
+  assert.match(script, /ARGV\[2\]/)
+  assert.match(script, /ARGV\[3\]/)
+  assert.ok(script.indexOf("GET', KEYS[2]") < script.indexOf("INCR', KEYS[1]"))
+  assert.equal((script.match(/redis\.call\('INCR'/g) ?? []).length, 2)
+  assert.equal((script.match(/redis\.call\('EXPIRE'/g) ?? []).length, 2)
 })
 
 test('sendCode enforces an atomic purpose-specific cooldown', async () => {
@@ -274,6 +301,23 @@ test('sendCode enforces an atomic purpose-specific cooldown', async () => {
       error.code === 'cooldown' && error.message === '请 60 秒后再试'
   )
   assert.equal(sent.length, 1)
+})
+
+test('sendCode fails closed on an unknown atomic rate outcome', async t => {
+  for (const outcome of [2, true, '1', null]) {
+    await t.test(String(outcome), async () => {
+      const { redis, service, sent } = createHarness({
+        redis: new FakeRedis({ rateResult: outcome })
+      })
+
+      await assert.rejects(
+        service.sendCode(sendPayload()),
+        error => error.code === 'service_unavailable'
+      )
+      assert.equal(sent.length, 0)
+      assert.equal([...redis.values.keys()].some(key => key.startsWith('email:otp:')), false)
+    })
+  }
 })
 
 test('sendCode limits an address to five sends per hour', async () => {
@@ -305,6 +349,60 @@ test('sendCode limits an IP identity to twenty sends per hour', async () => {
     error => error.code === 'rate_limited'
   )
   assert.equal(sent.length, 20)
+})
+
+test('requests from a saturated IP cannot consume a target address quota', async () => {
+  const { service, sent } = createHarness({ randomIntFn: () => 123456 })
+  const saturatedIp = '198.51.100.20'
+  for (let index = 0; index < 20; index += 1) {
+    await service.sendCode(sendPayload({
+      email: `seed-ip-${index}@example.com`,
+      ip: saturatedIp
+    }))
+  }
+
+  for (let index = 0; index < 5; index += 1) {
+    await assert.rejects(
+      service.sendCode(sendPayload({ email: 'target@example.com', ip: saturatedIp })),
+      error => error.code === 'rate_limited'
+    )
+  }
+
+  await service.sendCode(sendPayload({
+    email: 'target@example.com',
+    ip: '198.51.100.21'
+  }))
+  assert.equal(sent.at(-1).to, 'target@example.com')
+})
+
+test('requests for a saturated address cannot consume a victim IP quota', async () => {
+  const { service, sent } = createHarness({ randomIntFn: () => 123456 })
+  const saturatedEmail = 'saturated@example.com'
+  for (let index = 0; index < 5; index += 1) {
+    await service.sendCode(sendPayload({
+      email: saturatedEmail,
+      ip: `198.51.100.${index + 30}`
+    }))
+    assert.deepEqual(await service.consumeCode({
+      email: saturatedEmail,
+      purpose: 'register',
+      code: '123456'
+    }), { success: true })
+  }
+
+  const victimIp = '198.51.100.99'
+  for (let index = 0; index < 20; index += 1) {
+    await assert.rejects(
+      service.sendCode(sendPayload({ email: saturatedEmail, ip: victimIp })),
+      error => error.code === 'rate_limited'
+    )
+  }
+
+  await service.sendCode(sendPayload({
+    email: 'fresh@example.com',
+    ip: victimIp
+  }))
+  assert.equal(sent.at(-1).to, 'fresh@example.com')
 })
 
 test('register and reset OTP state is isolated and each code is single-use', async () => {

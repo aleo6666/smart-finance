@@ -15,9 +15,16 @@ const INVALID_CODE_RESULT = Object.freeze({
 
 const RATE_SCRIPT = [
   '-- email-verification:rate-limit',
-  "local current = redis.call('INCR', KEYS[1])",
-  "if current == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end",
-  'return current'
+  "local addressCurrent = tonumber(redis.call('GET', KEYS[1]) or '0')",
+  "local ipCurrent = tonumber(redis.call('GET', KEYS[2]) or '0')",
+  'if addressCurrent >= tonumber(ARGV[2]) or ipCurrent >= tonumber(ARGV[3]) then',
+  '  return 0',
+  'end',
+  "local addressNext = redis.call('INCR', KEYS[1])",
+  "if addressNext == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end",
+  "local ipNext = redis.call('INCR', KEYS[2])",
+  "if ipNext == 1 then redis.call('EXPIRE', KEYS[2], ARGV[1]) end",
+  'return 1'
 ].join('\n')
 
 const CONSUME_SCRIPT = [
@@ -149,16 +156,23 @@ export function createEmailVerificationService({
     return purpose === 'register' || purpose === 'reset'
   }
 
-  async function enforceRate(redis, key, maximum) {
-    const rawResult = await redisOperation(() => redis.eval(RATE_SCRIPT, 1, key, RATE_TTL))
-    const current = Number(rawResult)
-    if (!Number.isInteger(current) || current < 1) throw unavailable()
-    if (current > maximum) {
+  async function enforceRates(redis, addressKey, ipKey) {
+    const rawResult = await redisOperation(() => redis.eval(
+      RATE_SCRIPT,
+      2,
+      addressKey,
+      ipKey,
+      RATE_TTL,
+      MAX_EMAIL_SENDS,
+      MAX_IP_SENDS
+    ))
+    if (rawResult === 0) {
       throw new EmailVerificationError(
         'rate_limited',
         '请求过于频繁，请稍后重试'
       )
     }
+    if (rawResult !== 1) throw unavailable()
   }
 
   return {
@@ -181,8 +195,7 @@ export function createEmailVerificationService({
       if (acquired !== 'OK') throw unavailable()
 
       try {
-        await enforceRate(redis, rateAddressKey(identity), MAX_EMAIL_SENDS)
-        await enforceRate(redis, rateIpKey(ip), MAX_IP_SENDS)
+        await enforceRates(redis, rateAddressKey(identity), rateIpKey(ip))
       } catch (error) {
         await safeDelete(redis, cooldownKey)
         throw error
