@@ -43,9 +43,8 @@ function expectTtlNear(actual, expected, tolerance = 5) {
 test('email verification security works atomically against real Redis', {
   skip: redisUrl ? false : 'EMAIL_AUTH_REDIS_URL is not set; real Redis test skipped'
 }, async () => {
-  assert.match(
-    redisUrl,
-    /^rediss?:\/\//,
+  assert.ok(
+    /^rediss?:\/\//.test(redisUrl),
     'EMAIL_AUTH_REDIS_URL must use redis:// or rediss:// and point to a dedicated test Redis database'
   )
 
