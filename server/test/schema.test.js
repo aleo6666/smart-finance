@@ -59,14 +59,13 @@ test('users schema defines verified email identity fields and unique index', () 
 })
 
 test('ensureUserEmailSchema adds missing email schema once', async () => {
-  const { db, operations } = createUserEmailSchemaDb({
-    columns: ['email_verified_at']
-  })
+  const { db, operations } = createUserEmailSchemaDb()
 
   await ensureUserEmailSchema(db)
 
   assert.deepEqual(operations, [
     ['string', 'email', 254],
+    ['dateTime', 'email_verified_at'],
     ['unique', ['email'], 'uniq_users_email']
   ])
 
