@@ -125,6 +125,36 @@ async function request(deps, path, body, headers = {}) {
   }
 }
 
+function createDeferred() {
+  let resolve
+  let reject
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
+
+async function settleWithin(promise, timeoutMs = 1000) {
+  let timer
+  try {
+    return await Promise.race([
+      promise.then(value => ({ settled: true, value })),
+      new Promise(resolve => {
+        timer = setTimeout(() => resolve({ settled: false }), timeoutMs)
+      })
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function flushBackgroundWork() {
+  await new Promise(resolve => setImmediate(resolve))
+  await Promise.resolve()
+  await new Promise(resolve => setImmediate(resolve))
+}
+
 test('email auth router exposes all four POST endpoints', () => {
   const { deps } = createDependencies()
   const routes = buildRouter(deps).stack
@@ -159,6 +189,98 @@ test('invalid request bodies return 400 without touching downstream dependencies
       assert.deepEqual(events, [])
     })
   }
+})
+
+test('password endpoints reject inputs beyond bcrypt 72-byte limit without side effects', async t => {
+  const endpoints = [
+    ['/register', password => ({ email: 'person@example.com', code: '123456', password })],
+    ['/reset-password', password => ({ email: 'person@example.com', code: '123456', password })],
+    ['/login', password => ({ email: 'person@example.com', password })]
+  ]
+  const overLimitPasswords = [
+    ['73 ASCII bytes', 'a'.repeat(73)],
+    ['75 UTF-8 bytes', '密'.repeat(25)]
+  ]
+
+  for (const [path, bodyFor] of endpoints) {
+    for (const [name, password] of overLimitPasswords) {
+      await t.test(`${path} rejects ${name}`, async () => {
+        const { deps, events } = createDependencies()
+        const result = await request(deps, path, bodyFor(password))
+
+        assert.equal(Buffer.byteLength(password, 'utf8') > 72, true)
+        assert.equal(result.status, 400)
+        assert.deepEqual(events, [])
+      })
+    }
+  }
+})
+
+test('password endpoints allow exactly 72 UTF-8 bytes into their normal dependency flow', async t => {
+  const password = '密'.repeat(24)
+  assert.equal(Buffer.byteLength(password, 'utf8'), 72)
+  const cases = [
+    ['/register', { email: 'person@example.com', code: '123456', password }, 'consumeCode'],
+    ['/reset-password', { email: 'person@example.com', code: '123456', password }, 'consumeCode'],
+    ['/login', { email: 'person@example.com', password }, 'getLoginLock']
+  ]
+
+  for (const [path, body, expectedEvent] of cases) {
+    await t.test(path, async () => {
+      const { deps, events } = createDependencies()
+      await request(deps, path, body)
+
+      assert.equal(events.some(([event]) => event === expectedEvent), true)
+    })
+  }
+})
+
+test('reset send-code returns 202 before account lookup settles', async () => {
+  const { deps, events } = createDependencies()
+  const lookup = createDeferred()
+  deps.accounts.findByEmail = email => {
+    events.push(['findByEmail', email])
+    return lookup.promise
+  }
+
+  const requestPromise = request(deps, '/send-code', {
+    email: 'person@example.com',
+    purpose: 'reset'
+  })
+  const outcome = await settleWithin(requestPromise)
+  lookup.resolve(undefined)
+  const result = await requestPromise
+  await flushBackgroundWork()
+
+  assert.equal(outcome.settled, true)
+  assert.deepEqual(result, { status: 202, body: RESET_ACCEPTED })
+  assert.equal(events.some(([event]) => event === 'sendCode'), false)
+})
+
+test('reset send-code returns 202 before verified-account delivery settles', async () => {
+  const { deps, events } = createDependencies()
+  const delivery = createDeferred()
+  deps.accounts.findByEmail = async email => {
+    events.push(['findByEmail', email])
+    return { id: 1, email_verified_at: '2026-08-01' }
+  }
+  deps.verification.sendCode = input => {
+    events.push(['sendCode', input])
+    return delivery.promise
+  }
+
+  const requestPromise = request(deps, '/send-code', {
+    email: 'person@example.com',
+    purpose: 'reset'
+  })
+  const outcome = await settleWithin(requestPromise)
+  delivery.resolve({ success: true })
+  const result = await requestPromise
+  await flushBackgroundWork()
+
+  assert.equal(outcome.settled, true)
+  assert.deepEqual(result, { status: 202, body: RESET_ACCEPTED })
+  assert.equal(events.filter(([event]) => event === 'sendCode').length, 1)
 })
 
 test('reset send-code never reveals account or delivery state', async t => {
@@ -209,21 +331,58 @@ test('reset send-code never reveals account or delivery state', async t => {
         email: '  Person@Example.COM ',
         purpose: 'reset'
       }, { 'x-forwarded-for': '203.0.113.7' })
+      await flushBackgroundWork()
 
       outcomes.push(JSON.stringify(result))
       assert.equal(result.status, 202)
       assert.deepEqual(result.body, RESET_ACCEPTED)
       assert.equal(events.filter(([name]) => name === 'sendCode').length, current.expectedSends)
       if (current.sendError) {
-        const serialized = JSON.stringify(loggerCalls)
-        assert.equal(serialized.includes(current.sendError.message), false)
-        assert.equal(serialized.includes('Person@Example.COM'), false)
-        assert.equal(loggerCalls[0][2].reason, current.sendError.code)
+        assert.deepEqual(loggerCalls, [[
+          'warn',
+          'Reset email verification delivery skipped',
+          {
+            operation: 'send-reset-code',
+            email: 'person@example.com',
+            reason: current.sendError.code
+          }
+        ]])
+        assert.equal(JSON.stringify(loggerCalls).includes(current.sendError.message), false)
+      } else {
+        assert.deepEqual(loggerCalls, [])
       }
     })
   }
 
   assert.equal(new Set(outcomes).size, 1)
+})
+
+test('reset send-code catches background lookup failures with safe diagnostics', async () => {
+  const { deps, loggerCalls } = createDependencies()
+  const privateMessage = 'lookup failed password=secret1 code=123456'
+  deps.accounts.findByEmail = async () => {
+    throw Object.assign(new Error(privateMessage), { code: 'ER_CONNECTION_LOST' })
+  }
+
+  const result = await request(deps, '/send-code', {
+    email: 'person@example.com',
+    purpose: 'reset'
+  })
+  await flushBackgroundWork()
+
+  assert.deepEqual(result, { status: 202, body: RESET_ACCEPTED })
+  assert.deepEqual(loggerCalls, [[
+    'warn',
+    'Reset email verification delivery skipped',
+    {
+      operation: 'send-reset-code',
+      email: 'person@example.com',
+      reason: 'ER_CONNECTION_LOST'
+    }
+  ]])
+  assert.equal(JSON.stringify(loggerCalls).includes(privateMessage), false)
+  assert.equal(JSON.stringify(loggerCalls).includes('123456'), false)
+  assert.equal(JSON.stringify(loggerCalls).includes('secret1'), false)
 })
 
 test('register send-code normalizes email and forwards the request ip', async () => {
@@ -566,8 +725,8 @@ test('successful reset hashes, updates and clears state in order', async () => {
     ['consumeCode', { email: 'person@example.com', purpose: 'reset', code: '654321' }],
     ['findByEmail', 'person@example.com'],
     ['hashPassword', 'newpass', 10],
-    ['updatePassword', 8, 'password-hash'],
-    ['clearSecurityState', 'person@example.com']
+    ['clearSecurityState', 'person@example.com'],
+    ['updatePassword', 8, 'password-hash']
   ])
   assert.deepEqual(loggerCalls, [[
     'info',
@@ -580,6 +739,35 @@ test('default router uses the database clock for verification timestamps', async
   const source = await readFile(new URL('../src/routes/emailAuth.js', import.meta.url), 'utf8')
 
   assert.match(source, /now:\s*\(\)\s*=>\s*db\.fn\.now\(\)/)
+})
+
+test('reset does not update the password when clearing security state fails', async () => {
+  const { deps, events, loggerCalls } = createDependencies()
+  deps.accounts.findByEmail = async email => {
+    events.push(['findByEmail', email])
+    return { id: 8, email_verified_at: '2026-08-01' }
+  }
+  deps.verification.clearSecurityState = async email => {
+    events.push(['clearSecurityState', email])
+    throw Object.assign(new Error('private redis detail'), { code: 'REDIS_DOWN' })
+  }
+
+  const result = await request(deps, '/reset-password', {
+    email: 'person@example.com',
+    code: '654321',
+    password: 'newpass'
+  })
+
+  assert.deepEqual(result, {
+    status: 500,
+    body: { success: false, error: '服务暂时不可用，请稍后重试' }
+  })
+  assert.equal(events.some(([event]) => event === 'updatePassword'), false)
+  assert.deepEqual(loggerCalls, [[
+    'error',
+    'Email authentication operation failed',
+    { operation: 'reset-password', errorCode: 'REDIS_DOWN' }
+  ]])
 })
 
 test('reset never reports success when no password row was updated', async () => {
@@ -603,7 +791,7 @@ test('reset never reports success when no password row was updated', async () =>
     status: 500,
     body: { success: false, error: '服务暂时不可用，请稍后重试' }
   })
-  assert.equal(events.some(([event]) => event === 'clearSecurityState'), false)
+  assert.equal(events.some(([event]) => event === 'clearSecurityState'), true)
   assert.equal(loggerCalls.length, 1)
 })
 

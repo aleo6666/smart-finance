@@ -34,7 +34,8 @@ function diagnosticCode(error) {
 
 function hasValidCodeAndPassword(code, password) {
   return typeof code === 'string' && /^[0-9]{6}$/.test(code) &&
-    typeof password === 'string' && password.length >= 6
+    typeof password === 'string' && password.length >= 6 &&
+    Buffer.byteLength(password, 'utf8') <= 72
 }
 
 export function createEmailAuthRouter({
@@ -73,17 +74,23 @@ export function createEmailAuthRouter({
     }
 
     if (purpose === 'reset') {
-      try {
-        const user = await accounts.findByEmail(email)
-        if (user?.email_verified_at) {
-          await verification.sendCode({ email, purpose, ip: req.ip })
-        }
-      } catch (error) {
-        logger.warn('Reset email verification delivery skipped', {
-          operation: 'send-reset-code',
-          reason: diagnosticCode(error)
-        })
-      }
+      const ip = req.ip
+      setImmediate(() => {
+        void (async () => {
+          try {
+            const user = await accounts.findByEmail(email)
+            if (user?.email_verified_at) {
+              await verification.sendCode({ email, purpose, ip })
+            }
+          } catch (error) {
+            logger.warn('Reset email verification delivery skipped', {
+              operation: 'send-reset-code',
+              email,
+              reason: diagnosticCode(error)
+            })
+          }
+        })().catch(() => {})
+      })
       return res.status(202).json(RESET_ACCEPTED)
     }
 
@@ -178,7 +185,8 @@ export function createEmailAuthRouter({
   router.post('/login', safe('login', async (req, res) => {
     const email = normalizeEmail(req.body?.email)
     const password = req.body?.password
-    if (!isValidEmail(email) || typeof password !== 'string' || !password) {
+    if (!isValidEmail(email) || typeof password !== 'string' || !password ||
+      Buffer.byteLength(password, 'utf8') > 72) {
       return res.status(400).json({
         success: false,
         error: '邮箱或密码格式不正确'
@@ -237,13 +245,13 @@ export function createEmailAuthRouter({
     }
 
     const passwordHash = await hashPassword(password, SALT_ROUNDS)
+    await verification.clearSecurityState(email)
     const updated = await accounts.updatePassword(user.id, passwordHash)
     if (updated === 0) {
       const error = new Error('Password row was not updated')
       error.code = 'PASSWORD_NOT_UPDATED'
       throw error
     }
-    await verification.clearSecurityState(email)
     logger.info('Email password reset succeeded', { userId: user.id, email })
 
     return res.json({
