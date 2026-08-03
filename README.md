@@ -33,7 +33,7 @@
 - **个性化建议**：基于消费模式的结构化改进建议
 
 ### Agent 架构
-- LangGraph StateGraph 编排，10 节点 + 条件路由
+- LangGraph StateGraph 编排，12 节点 + 条件路由
 - 四层记忆：会话元数据 / 长期记忆 / 近期摘要 / 滑动窗口
 - 3-Agent 主从协同：Master / Retrieval / Calculator
 - 灰度架构：Feature Flag + 哈希分桶 + 秒级回滚
@@ -108,7 +108,7 @@ server/src/agent/
 │   ├── knowledgeTool.js  # 知识库检索
 │   └── ocrTool.js        # PaddleOCR
 ├── memory/               # 四层记忆
-├── nodes/                # 图节点（7 个）
+├── nodes/                # 图节点（12 个）
 ├── security/sqlGuard.js  # SQL AST 三层守卫
 ├── eval/                 # 🆕 Agent 评估框架
 │   ├── framework.js      # 评估运行器 + 报告生成
