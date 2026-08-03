@@ -101,6 +101,34 @@ export const api = {
     })
   },
 
+  emailSendCode(email, purpose) {
+    return request('/api/auth/email/send-code', {
+      method: 'POST',
+      body: JSON.stringify({ email, purpose })
+    })
+  },
+
+  emailRegister(email, code, password) {
+    return request('/api/auth/email/register', {
+      method: 'POST',
+      body: JSON.stringify({ email, code, password })
+    })
+  },
+
+  emailLogin(email, password) {
+    return request('/api/auth/email/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password })
+    })
+  },
+
+  emailResetPassword(email, code, password) {
+    return request('/api/auth/email/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ email, code, password })
+    })
+  },
+
   // 小程序登录
   wechatMiniLogin(code) {
     return request('/api/auth/wechat-mini', {
