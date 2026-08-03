@@ -56,6 +56,11 @@ function createFakeDatabase(initialState = {}, failures = {}) {
             where: { ...criteria },
             values: structuredClone(values)
           })
+          if (failures.updateTable === table) {
+            const error = new Error(failures.updateMessage || `${table} update failed`)
+            error.code = failures.updateCode
+            throw error
+          }
           let updated = 0
           for (const row of readState()[table]) {
             if (matches(row, criteria)) {
@@ -257,6 +262,38 @@ test('createEmailAccount never migrates guest records when account setup rejects
   }
 })
 
+test('createEmailAccount keeps the committed account when guest migration fails', async () => {
+  const warnings = []
+  const fake = createFakeDatabase({
+    records: [{ id: 1, device_id: 'guest-device', user_id: null }]
+  }, {
+    updateTable: 'records',
+    updateMessage: 'private database detail for person@example.com on guest-device',
+    updateCode: 'ER_GUEST_MIGRATION'
+  })
+  const service = createAuthAccountService(fake.database, {
+    warn(...args) {
+      warnings.push(args)
+    }
+  })
+
+  const userId = await service.createEmailAccount(accountInput)
+
+  assert.equal(userId, 1)
+  assert.equal(fake.events.some(event => event.type === 'transaction:commit'), true)
+  assert.equal(fake.state.users.length, 1)
+  assert.equal(fake.state.ledgers.length, 1)
+  assert.equal(fake.state.records[0].user_id, null)
+  assert.deepEqual(warnings, [[
+    'Guest record migration failed',
+    { userId: 1, errorCode: 'ER_GUEST_MIGRATION' }
+  ]])
+  const serializedWarnings = JSON.stringify(warnings)
+  assert.equal(serializedWarnings.includes('person@example.com'), false)
+  assert.equal(serializedWarnings.includes('guest-device'), false)
+  assert.equal(serializedWarnings.includes('private database detail'), false)
+})
+
 test('migrateGuestRecords returns the number of matching records it assigns', async () => {
   const fake = createFakeDatabase({
     records: [
@@ -269,6 +306,19 @@ test('migrateGuestRecords returns the number of matching records it assigns', as
 
   assert.equal(updated, 2)
   assert.deepEqual(fake.state.records.map(record => record.user_id), [8, 8])
+})
+
+test('migrateGuestRecords still rejects when called directly and its update fails', async () => {
+  const fake = createFakeDatabase({
+    records: [{ id: 1, device_id: 'guest-device', user_id: null }]
+  }, {
+    updateTable: 'records'
+  })
+
+  await assert.rejects(
+    migrateGuestRecords(8, 'guest-device', fake.database),
+    /records update failed/
+  )
 })
 
 test('findByEmail returns the matching account', async () => {
@@ -296,6 +346,38 @@ test('completeLogin records the database time before migrating guest records', a
   assert.equal(fake.state.records[0].user_id, 8)
   const updates = fake.events.filter(event => event.type === 'update')
   assert.deepEqual(updates.map(event => event.table), ['users', 'records'])
+})
+
+test('completeLogin keeps the last login update when guest migration fails', async () => {
+  const warnings = []
+  const fake = createFakeDatabase({
+    users: [{ id: 8, email: 'person@example.com' }],
+    records: [{ id: 1, device_id: 'guest-device', user_id: null }]
+  }, {
+    nowValue: 'database-time',
+    updateTable: 'records',
+    updateMessage: 'private database detail for person@example.com on guest-device',
+    updateCode: 'ER_GUEST_MIGRATION'
+  })
+  const service = createAuthAccountService(fake.database, {
+    warn(...args) {
+      warnings.push(args)
+    }
+  })
+
+  const result = await service.completeLogin(8, 'guest-device')
+
+  assert.equal(result, undefined)
+  assert.equal(fake.state.users[0].last_login_at, 'database-time')
+  assert.equal(fake.state.records[0].user_id, null)
+  assert.deepEqual(warnings, [[
+    'Guest record migration failed',
+    { userId: 8, errorCode: 'ER_GUEST_MIGRATION' }
+  ]])
+  const serializedWarnings = JSON.stringify(warnings)
+  assert.equal(serializedWarnings.includes('person@example.com'), false)
+  assert.equal(serializedWarnings.includes('guest-device'), false)
+  assert.equal(serializedWarnings.includes('private database detail'), false)
 })
 
 test('updatePassword changes only the selected account password', async () => {

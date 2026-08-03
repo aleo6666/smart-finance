@@ -1,4 +1,7 @@
 import db from '../db.js'
+import { createLogger } from '../utils/logger.js'
+
+const defaultLogger = createLogger('AuthAccount')
 
 export async function createDefaultLedger(userId, database = db) {
   const existing = await database('ledgers').where({ user_id: userId }).first()
@@ -18,7 +21,18 @@ export async function migrateGuestRecords(userId, deviceId, database = db) {
     .update({ user_id: userId })
 }
 
-export function createAuthAccountService(database = db) {
+async function migrateGuestRecordsBestEffort(userId, deviceId, database, logger) {
+  try {
+    return await migrateGuestRecords(userId, deviceId, database)
+  } catch (error) {
+    logger.warn('Guest record migration failed', {
+      userId,
+      errorCode: error?.code || 'UNKNOWN'
+    })
+  }
+}
+
+export function createAuthAccountService(database = db, logger = defaultLogger) {
   return {
     findByEmail(email) {
       return database('users').where({ email }).first()
@@ -42,7 +56,7 @@ export function createAuthAccountService(database = db) {
         return createdUserId
       })
 
-      await migrateGuestRecords(userId, deviceId, database)
+      await migrateGuestRecordsBestEffort(userId, deviceId, database, logger)
       return userId
     },
 
@@ -50,7 +64,7 @@ export function createAuthAccountService(database = db) {
       await database('users')
         .where({ id: userId })
         .update({ last_login_at: database.fn.now() })
-      return migrateGuestRecords(userId, deviceId, database)
+      return migrateGuestRecordsBestEffort(userId, deviceId, database, logger)
     },
 
     updatePassword(userId, passwordHash) {
