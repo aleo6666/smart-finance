@@ -49,6 +49,14 @@ export function loadConfig(env = process.env) {
       port: numberFromEnv(env.REDIS_PORT, 6379),
       password: env.REDIS_PASSWORD || ''
     },
+    email: {
+      host: env.SMTP_HOST || '',
+      port: numberFromEnv(env.SMTP_PORT, 465),
+      secure: booleanFromEnv(env.SMTP_SECURE, true),
+      user: env.SMTP_USER || '',
+      pass: env.SMTP_PASS || '',
+      from: env.MAIL_FROM || ''
+    },
     vector: {
       url: env.VECTOR_DB_URL || 'http://localhost:6333',
       apiKey: env.VECTOR_DB_API_KEY || '',
@@ -116,7 +124,8 @@ export function loadConfig(env = process.env) {
       pollTimeoutMs: boundedInteger(env.PADDLEOCR_POLL_TIMEOUT_MS, 600000, 10000, 900000)
     },
     auth: {
-      jwtSecret: env.JWT_SECRET || 'dev-secret-do-not-use-in-production-change-me-immediately'
+      jwtSecret: env.JWT_SECRET || 'dev-secret-do-not-use-in-production-change-me-immediately',
+      emailOtpSecret: env.EMAIL_OTP_SECRET || 'dev-email-otp-secret-change-me-immediately'
     },
     wechat: {
       miniAppId: env.WECHAT_MINI_APPID || '',
@@ -127,20 +136,39 @@ export function loadConfig(env = process.env) {
   }
 }
 
+export function validateProductionConfig(configToValidate) {
+  if (!configToValidate.auth.jwtSecret) {
+    throw new Error('JWT_SECRET is required in production')
+  }
+  if (configToValidate.auth.jwtSecret.includes('change-me') || configToValidate.auth.jwtSecret.length < 32) {
+    throw new Error('JWT_SECRET must be changed in production to a strong random string of at least 32 characters')
+  }
+  if (configToValidate.db.password === 'change-me-in-production') {
+    throw new Error('DB_PASSWORD must be set in production to a strong custom password, cannot use default value')
+  }
+  if (
+    !configToValidate.email.host ||
+    !configToValidate.email.user ||
+    !configToValidate.email.pass ||
+    !configToValidate.email.from ||
+    !configToValidate.auth.emailOtpSecret ||
+    configToValidate.auth.emailOtpSecret === 'dev-email-otp-secret-change-me-immediately'
+  ) {
+    throw new Error('SMTP_HOST, SMTP_USER, SMTP_PASS, MAIL_FROM and EMAIL_OTP_SECRET are required in production')
+  }
+  if (
+    configToValidate.auth.emailOtpSecret.includes('change-me') ||
+    configToValidate.auth.emailOtpSecret.length < 32
+  ) {
+    throw new Error('EMAIL_OTP_SECRET must be changed in production to a strong random string of at least 32 characters')
+  }
+}
+
 const config = loadConfig()
 
 // 生产环境配置校验
 if (config.server.nodeEnv === 'production') {
-  if (!config.auth.jwtSecret) {
-    throw new Error('JWT_SECRET is required in production')
-  }
-  // 禁止使用默认占位符或过短的JWT密钥
-  if (config.auth.jwtSecret.includes('change-me') || config.auth.jwtSecret.length < 32) {
-    throw new Error('JWT_SECRET must be changed in production to a strong random string of at least 32 characters')
-  }
-  if (config.db.password === 'change-me-in-production') {
-    throw new Error('DB_PASSWORD must be set in production to a strong custom password, cannot use default value')
-  }
+  validateProductionConfig(config)
 }
 
 export default config

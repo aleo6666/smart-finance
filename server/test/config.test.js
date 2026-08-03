@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 
 const previousNodeEnv = process.env.NODE_ENV
 process.env.NODE_ENV = 'test'
-const { loadConfig } = await import('../src/config.js?config-test')
+const { loadConfig, validateProductionConfig } = await import('../src/config.js?config-test')
 if (previousNodeEnv == null) delete process.env.NODE_ENV
 else process.env.NODE_ENV = previousNodeEnv
 
@@ -25,6 +25,14 @@ test('loadConfig returns the complete default config', () => {
       host: 'localhost',
       port: 6379,
       password: ''
+    },
+    email: {
+      host: '',
+      port: 465,
+      secure: true,
+      user: '',
+      pass: '',
+      from: ''
     },
     vector: {
       url: 'http://localhost:6333',
@@ -84,7 +92,8 @@ test('loadConfig returns the complete default config', () => {
       user: '',
       password: '',
       maxRows: 200,
-      timeoutMs: 3000
+      timeoutMs: 3000,
+      maxRequestsPerMinute: 10
     },
     paddleOcr: {
       accessToken: '',
@@ -92,7 +101,8 @@ test('loadConfig returns the complete default config', () => {
       pollTimeoutMs: 600000
     },
     auth: {
-      jwtSecret: undefined
+      jwtSecret: 'dev-secret-do-not-use-in-production-change-me-immediately',
+      emailOtpSecret: 'dev-email-otp-secret-change-me-immediately'
     },
     wechat: {
       miniAppId: '',
@@ -113,6 +123,76 @@ test('loadConfig converts numeric environment values', () => {
   assert.equal(config.server.port, 3100)
   assert.equal(config.db.port, 3307)
   assert.equal(config.redis.port, 6380)
+})
+
+test('loadConfig reads SMTP email settings and the email OTP secret', () => {
+  const loaded = loadConfig({
+    SMTP_HOST: 'smtp.qq.com',
+    SMTP_PORT: '465',
+    SMTP_SECURE: 'true',
+    SMTP_USER: 'sender@example.com',
+    SMTP_PASS: 'smtp-app-password',
+    MAIL_FROM: 'Smart Finance <sender@example.com>',
+    EMAIL_OTP_SECRET: 'email-otp-secret-at-least-32-characters'
+  })
+
+  assert.deepEqual(loaded.email, {
+    host: 'smtp.qq.com',
+    port: 465,
+    secure: true,
+    user: 'sender@example.com',
+    pass: 'smtp-app-password',
+    from: 'Smart Finance <sender@example.com>'
+  })
+  assert.equal(loaded.auth.emailOtpSecret, 'email-otp-secret-at-least-32-characters')
+})
+
+test('validateProductionConfig requires production email settings', () => {
+  const productionConfig = loadConfig({
+    NODE_ENV: 'production',
+    DB_PASSWORD: 'strong-custom-database-password',
+    JWT_SECRET: 'strong-jwt-secret-at-least-32-characters'
+  })
+
+  assert.throws(
+    () => validateProductionConfig(productionConfig),
+    /SMTP_HOST, SMTP_USER, SMTP_PASS, MAIL_FROM and EMAIL_OTP_SECRET/
+  )
+
+  const missingOtpSecretConfig = loadConfig({
+    NODE_ENV: 'production',
+    DB_PASSWORD: 'strong-custom-database-password',
+    JWT_SECRET: 'strong-jwt-secret-at-least-32-characters',
+    SMTP_HOST: 'smtp.qq.com',
+    SMTP_USER: 'sender@example.com',
+    SMTP_PASS: 'smtp-app-password',
+    MAIL_FROM: 'Smart Finance <sender@example.com>'
+  })
+
+  assert.throws(
+    () => validateProductionConfig(missingOtpSecretConfig),
+    /SMTP_HOST, SMTP_USER, SMTP_PASS, MAIL_FROM and EMAIL_OTP_SECRET/
+  )
+})
+
+test('validateProductionConfig rejects weak email OTP secrets', () => {
+  for (const emailOtpSecret of ['change-me-email-otp-secret-that-is-long-enough', 'too-short']) {
+    const productionConfig = loadConfig({
+      NODE_ENV: 'production',
+      DB_PASSWORD: 'strong-custom-database-password',
+      JWT_SECRET: 'strong-jwt-secret-at-least-32-characters',
+      SMTP_HOST: 'smtp.qq.com',
+      SMTP_USER: 'sender@example.com',
+      SMTP_PASS: 'smtp-app-password',
+      MAIL_FROM: 'Smart Finance <sender@example.com>',
+      EMAIL_OTP_SECRET: emailOtpSecret
+    })
+
+    assert.throws(
+      () => validateProductionConfig(productionConfig),
+      /EMAIL_OTP_SECRET.*strong random string of at least 32 characters/
+    )
+  }
 })
 
 test('loadConfig reads LM Studio and bounded RAG overrides', () => {
@@ -220,6 +300,7 @@ test('admin SQL connection settings use database fallbacks and explicit override
     user: 'readonly',
     password: 'test-only',
     maxRows: 200,
-    timeoutMs: 3000
+    timeoutMs: 3000,
+    maxRequestsPerMinute: 10
   })
 })

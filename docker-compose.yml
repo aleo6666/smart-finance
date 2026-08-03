@@ -111,6 +111,13 @@ services:
       PADDLEOCR_REQUEST_TIMEOUT_MS: ${PADDLEOCR_REQUEST_TIMEOUT_MS:-300000}
       PADDLEOCR_POLL_TIMEOUT_MS: ${PADDLEOCR_POLL_TIMEOUT_MS:-600000}
       JWT_SECRET: ${JWT_SECRET:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_SECURE: ${SMTP_SECURE:-true}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      EMAIL_OTP_SECRET: ${EMAIL_OTP_SECRET:-}
       UPLOADS_DIR: /app/uploads
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
