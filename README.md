@@ -3,12 +3,12 @@
 [![部署状态](https://img.shields.io/badge/status-online-brightgreen)](http://8.163.84.206)
 [![Node.js](https://img.shields.io/badge/node-22+-339933)](https://nodejs.org)
 [![LangGraph](https://img.shields.io/badge/LangGraph-0.x-blue)](https://github.com/langchain-ai/langgraphjs)
-[![测试](https://img.shields.io/badge/tests-243%2F243-brightgreen)](#)
+[![测试](https://img.shields.io/badge/tests-609%2F609-brightgreen)](#)
 [![许可证](https://img.shields.io/badge/license-Unlicensed-red)](#)
 
 基于 LangGraph 的 AI-Native 智能财务顾问——从自然语言记账到财务健康评估，从四层记忆到三级安全防线，从本地开发到 Docker 灰度部署的全链路实现。
 
-线上地址：http://8.163.84.206
+线上地址：https://lisheng666.xyz
 
 > 📖 深度架构文档见 [README_DEEP.md](./README_DEEP.md)
 
@@ -18,8 +18,8 @@
 
 ### 智能记账
 - 自然语言输入，自动识别金额、分类、日期
-- 支持多账本，微信小程序
-- OCR 票据识别（PaddleOCR）
+- 多 Agent 自动收支识别，LLM 大额二次确认
+- 支持多账本管理（前端 CRUD）
 
 ### 账单查询与分析
 - 今日/本月/上月/分类明细/最大单笔/平均消费
@@ -46,35 +46,8 @@
 
 ### 认证方式
 
-- **邮箱 + 密码**：注册和重置密码均需先通过邮件中的 6 位验证码；验证后注册，登录使用邮箱和密码
-- **手机 + 密码**：现有接口继续保留，生产环境短信供应商尚未接入
-- **微信**：微信小程序和公众号认证入口继续保留
-
-### 邮箱 SMTP 配置
-
-个人项目可使用邮箱服务商提供的 SMTP 能力发送验证码。`SMTP_PASS` 必须填写个人邮箱后台生成的 **SMTP app 授权码**，它既不是邮箱登录密码，也不是用户收到的 6 位验证码。`EMAIL_OTP_SECRET` 是独立的随机 HMAC 密钥，生产环境至少 32 个字符；生产环境同时需要至少 32 个字符的强 `JWT_SECRET`。真实邮箱、授权码和密钥均不得提交到仓库。
-
-| 变量 | 用途 |
-|------|------|
-| `SMTP_HOST` | 邮箱服务商的 SMTP 主机 |
-| `SMTP_PORT` | SMTP 端口；通常 465 配合安全连接，587 配合 STARTTLS |
-| `SMTP_SECURE` | 465 通常设为 `true`，587 通常设为 `false` |
-| `SMTP_USER` | 发件邮箱账号 |
-| `SMTP_PASS` | 邮箱服务商生成的 SMTP app 授权码 |
-| `MAIL_FROM` | 收件箱展示的发件人名称和地址 |
-| `EMAIL_OTP_SECRET` | 独立随机密钥，生产环境至少 32 个字符 |
-
-变量模板见 [`server/.env.example`](./server/.env.example)。直接运行后端时，将配置写入被 Git 忽略的 `server/.env`；通过 Docker Compose 运行时，将 Compose 插值变量写入仓库根目录下被忽略的 `.env`。可用以下命令生成 `EMAIL_OTP_SECRET`，请只保存到本地或密钥管理服务：
-
-```bash
-node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
-```
-
-验证码安全策略：有效期 5 分钟、60 秒发送冷却、最多尝试 5 次且成功后立即失效；同一邮箱每小时最多发送 5 次，同一 IP 每小时最多 20 次；邮箱密码连续失败 5 次后锁定 15 分钟。Redis 不可用时验证码流程默认关闭（fail closed），重置密码接口使用统一响应防止探测已注册邮箱。
-
-可选真实 Redis 集成测试中的 `EMAIL_AUTH_REDIS_URL` 只能指向专用或临时测试 Redis/DB。测试不会调用 `FLUSHDB` 或 `FLUSHALL`，但会写入短期 HMAC 测试键，并仅清理本次测试新增的键。
-
-上线前应使用专用测试邮箱做一次人工 SMTP smoke：在本地安全配置上述变量并启动依赖，依次验证发送注册验证码、完成注册、邮箱密码登录和重置密码，再确认验证码不可重复使用、过期后失效；日志不得包含完整邮箱（邮箱仅以脱敏形式出现），且不得包含授权码、密钥或验证码。此步骤需要项目维护者自己的邮箱服务商授权码，不属于自动化测试。
+- **邮箱 + 密码**：简单注册/登录，无需验证码，注册即用
+- **开发环境**：自动跳过 SMTP 验证，本地开箱即用
 
 ---
 
@@ -116,7 +89,7 @@ npm run dev:client          # 前端开发
 
 cd server
 
-npm test                    # 全量测试 (233+ tests)
+npm test                    # 全量测试 (609 tests)
 npm run test:agent          # Agent 测试
 npm run eval                # Agent 评估 (22 用例)
 npm run test:eval -- --test-name-pattern="advisor"  # 财务顾问评估

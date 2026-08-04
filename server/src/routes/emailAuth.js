@@ -182,6 +182,51 @@ export function createEmailAuthRouter({
     return res.json({ success: true, data: { token, userId } })
   }))
 
+  // 简单邮箱注册（无需验证码）
+  router.post('/register-simple', safe('register-simple', async (req, res) => {
+    const email = normalizeEmail(req.body?.email)
+    const password = req.body?.password
+    if (!isValidEmail(email) || typeof password !== 'string' || password.length < 6 ||
+      Buffer.byteLength(password, 'utf8') > 72) {
+      return res.status(400).json({
+        success: false,
+        error: '邮箱或密码格式不正确（密码至少6位）'
+      })
+    }
+
+    const existing = await accounts.findByEmail(email)
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        error: '该邮箱已注册，请直接登录'
+      })
+    }
+
+    const passwordHash = await hashPassword(password, SALT_ROUNDS)
+    let userId
+    try {
+      userId = await accounts.createEmailAccount({
+        email,
+        passwordHash,
+        nickname: email.split('@')[0],
+        verifiedAt: now(),
+        deviceId: req.deviceId
+      })
+    } catch (error) {
+      if (error?.code === 'ER_DUP_ENTRY') {
+        return res.status(409).json({
+          success: false,
+          error: '该邮箱已注册，请直接登录'
+        })
+      }
+      throw error
+    }
+
+    const token = sign(userId)
+    logger.info('Email simple registration succeeded', { userId, email })
+    return res.json({ success: true, data: { token, userId } })
+  }))
+
   router.post('/login', safe('login', async (req, res) => {
     const email = normalizeEmail(req.body?.email)
     const password = req.body?.password

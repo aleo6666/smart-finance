@@ -323,4 +323,73 @@ router.get('/wechat-mp', async (req, res) => {
   }
 })
 
+// ============================================================
+// 简单用户名密码登录（无需手机号/邮箱验证，个人开发用）
+// ============================================================
+router.post('/simple-register', async (req, res) => {
+  try {
+    const { username, password } = req.body
+    if (!username || !password) {
+      return res.status(400).json({ success: false, error: '用户名和密码不能为空' })
+    }
+    if (password.length < 4) {
+      return res.status(400).json({ success: false, error: '密码至少4位' })
+    }
+    const cleanUsername = String(username).trim().slice(0, 50)
+    if (!cleanUsername) {
+      return res.status(400).json({ success: false, error: '用户名不能为空' })
+    }
+
+    const existing = await db('users').where({ username: cleanUsername }).first()
+    if (existing) {
+      return res.status(409).json({ success: false, error: '用户名已被注册' })
+    }
+
+    const hash = await bcrypt.hash(password, SALT_ROUNDS)
+    const [userId] = await db('users').insert({
+      username: cleanUsername,
+      nickname: cleanUsername,
+      password: hash
+    })
+    await createDefaultLedger(userId)
+    await migrateGuestRecords(userId, req.deviceId)
+
+    const token = signToken(userId)
+    logger.info('用户名注册成功', { userId, username: cleanUsername })
+    res.json({ success: true, data: { token, userId } })
+  } catch (error) {
+    logger.warn('用户名注册失败', { error: error.message })
+    res.status(500).json({ success: false, error: '注册失败，请稍后重试' })
+  }
+})
+
+router.post('/simple-login', async (req, res) => {
+  try {
+    const { username, password } = req.body
+    if (!username || !password) {
+      return res.status(400).json({ success: false, error: '用户名和密码不能为空' })
+    }
+
+    const user = await db('users').where({ username: String(username).trim() }).first()
+    if (!user || !user.password) {
+      return res.status(401).json({ success: false, error: '用户名或密码错误' })
+    }
+
+    const match = await bcrypt.compare(password, user.password)
+    if (!match) {
+      return res.status(401).json({ success: false, error: '用户名或密码错误' })
+    }
+
+    await db('users').where({ id: user.id }).update({ last_login_at: db.fn.now() })
+    await migrateGuestRecords(user.id, req.deviceId)
+
+    const token = signToken(user.id)
+    logger.info('用户名登录成功', { userId: user.id, username: user.username })
+    res.json({ success: true, data: { token, userId: user.id } })
+  } catch (error) {
+    logger.warn('用户名登录失败', { error: error.message })
+    res.status(500).json({ success: false, error: '登录失败，请稍后重试' })
+  }
+})
+
 export default router

@@ -1,0 +1,13 @@
+# 本地开发覆盖 — Docker Compose 自动合并 docker-compose.override.yml
+services:
+  backend:
+    ports:
+      # Windows 保留 2950-3149 端口，用 4000
+      - "127.0.0.1:4000:3000"
+    environment:
+      # 本地开发不需要 SMTP 验证
+      NODE_ENV: development
+
+  frontend:
+    ports:
+      - "127.0.0.1:8080:80"

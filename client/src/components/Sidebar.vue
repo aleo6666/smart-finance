@@ -1,13 +1,13 @@
 <template>
   <aside class="sidebar" :class="{ open: store.sidebarOpen }">
     <div class="sidebar-header">
-      <h1>💰 财务记账助手</h1>
-      <p class="subtitle">智能记账，轻松理财</p>
+      <h1>💰 智能财务顾问</h1>
+      <p class="subtitle">AI驱动的个人财务顾问</p>
     </div>
 
     <nav class="sidebar-nav">
       <router-link to="/" exact-active-class="active">
-        <span class="icon">💬</span> 智能记账
+        <span class="icon">💬</span> 智能顾问
       </router-link>
       <router-link to="/reports" active-class="active">
         <span class="icon">📊</span> 消费分析

@@ -14,7 +14,7 @@ const CATEGORY_KEYWORDS = [
   ['礼物', ['礼物', '红包', '请客', '生日']]
 ]
 
-const INCOME_WORDS = ['收入', '工资', '奖金', '报销', '退款', '兼职', '利息', '收到了', '收到']
+const INCOME_WORDS = ['收入', '工资', '奖金', '报销', '退款', '兼职', '利息', '收到了', '收到', '红包', '转账', '津贴', '补贴', '提现', '分红', '退款到账', '兼职费', '外快', '副业']
 const QUERY_WORDS = ['多少', '统计', '分析', '报告', '汇总', '趋势', '占比']
 const ADVICE_WORDS = ['建议', '省钱', '规划', '理财', '怎么', '如何']
 const GOAL_WORDS = ['目标', '存钱', '储蓄', '想买']
@@ -49,14 +49,43 @@ function isIncome(text) {
   return INCOME_WORDS.some(word => text.includes(word))
 }
 
-function localParse(message) {
+async function classifyIncomeViaLLM(text, amount, lmStudioClient) {
+  try {
+    const reply = await Promise.race([
+      lmStudioClient.chat([
+        { role: 'user', content: `判断以下记账文本是收入还是支出，只回复income或expense: ${text}` }
+      ]),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('classifyIncomeViaLLM timeout after 5000ms')), 5000)
+      )
+    ])
+    const trimmed = String(reply).trim().toLowerCase()
+    return trimmed === 'income' ? 'income' : trimmed === 'expense' ? 'expense' : null
+  } catch {
+    return null
+  }
+}
+
+async function localParse(message, { lmStudioClient } = {}) {
   const text = String(message || '')
   const amount = extractAmount(text)
 
   if (amount) {
-    const type = isIncome(text) ? 'income' : 'expense'
-    const category = type === 'income' ? '收入' : inferCategory(text)
+    let type = isIncome(text) ? 'income' : 'expense'
+    let category = type === 'income' ? '收入' : inferCategory(text)
     const description = cleanDescription(text) || category
+
+    // 大额支出通过 LLM 二次确认收入类型
+    if (type === 'expense' && amount >= 500 && lmStudioClient) {
+      const llmType = await classifyIncomeViaLLM(text, amount, lmStudioClient)
+      if (llmType === 'income') {
+        type = 'income'
+        category = '收入'
+      } else if (llmType === null) {
+        return { intent: 'record', message: `已记录：支出 ${description} ¥${amount.toFixed(2)}`, data: { type: 'expense', amount, category, description, date: extractDate(text), uncertainType: true } }
+      }
+    }
+
     return {
       intent: 'record',
       message: `已记录：${type === 'income' ? '收入' : '支出'} ${description} ¥${amount.toFixed(2)}`,
@@ -226,9 +255,9 @@ export async function processMessage(_identity, userMessage, {
     console.warn('[NLU] LLM 调用失败，回退关键字解析:', error.message)
   }
 
-  // 2. 降级：关键字匹配
-  return localParse(message)
+  // 2. 降级：关键字匹配（大额支出可能触发 LLM 二次确认）
+  return await localParse(message, { lmStudioClient })
 }
 
 // 导出降级函数供测试使用
-export { localParse, inferCategory, extractAmount, extractDate, cleanDescription, isIncome }
+export { localParse, inferCategory, extractAmount, extractDate, cleanDescription, isIncome, classifyIncomeViaLLM }

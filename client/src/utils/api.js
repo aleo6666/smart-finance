@@ -85,6 +85,22 @@ export const api = {
     })
   },
 
+  // 简单用户名注册（无需验证码）
+  simpleRegister(username, password) {
+    return request('/api/auth/simple-register', {
+      method: 'POST',
+      body: JSON.stringify({ username, password })
+    })
+  },
+
+  // 简单用户名登录（无需验证码）
+  simpleLogin(username, password) {
+    return request('/api/auth/simple-login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password })
+    })
+  },
+
   // 发送短信验证码
   sendCode(phone) {
     return request('/api/auth/send-code', {
@@ -112,6 +128,14 @@ export const api = {
     return request('/api/auth/email/register', {
       method: 'POST',
       body: JSON.stringify({ email, code, password })
+    })
+  },
+
+  // 简单邮箱注册（无需验证码）
+  emailQuickRegister(email, password) {
+    return request('/api/auth/email/register-simple', {
+      method: 'POST',
+      body: JSON.stringify({ email, password })
     })
   },
 

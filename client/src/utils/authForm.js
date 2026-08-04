@@ -23,7 +23,7 @@ function isValidEmail(value) {
 
 export function isValidAuthIdentity(channel, value) {
   if (channel === 'email') return isValidEmail(value)
-  if (channel === 'phone') return typeof value === 'string' && /^1[3-9]\d{9}$/.test(value)
+  if (channel === 'email-quick') return isValidEmail(value)
   return false
 }
 
@@ -36,26 +36,24 @@ export function purposeForMode(mode) {
 export function isValidAuthPassword(mode, value) {
   if (typeof value !== 'string' || !['login', 'register', 'reset'].includes(mode)) return false
 
-  const minimumLength = mode === 'login' ? 1 : 6
+  const minimumLength = mode === 'login' ? 1 : (mode === 'register' ? 4 : 6)
   return value.length >= minimumLength && new TextEncoder().encode(value).length <= 72
 }
 
 export function requestForAuthMode(api, { channel, mode, identity, code, password }) {
-  if (channel !== 'phone' && channel !== 'email') {
+  if (!['email', 'email-quick'].includes(channel)) {
     throw new Error('Unsupported auth channel')
   }
-  if (!['login', 'register', 'reset'].includes(mode)) {
+  if (!['login', 'register'].includes(mode)) {
     throw new Error('Unsupported auth mode')
   }
 
-  const normalizedIdentity = channel === 'email' ? normalizeEmail(identity) : identity
-  if (channel === 'phone') {
-    if (mode === 'login') return api.login(normalizedIdentity, password)
-    if (mode === 'register') return api.register(normalizedIdentity, code, password)
-    return api.resetPassword(normalizedIdentity, code, password)
+  const email = normalizeEmail(identity)
+  
+  if (channel === 'email-quick' || channel === 'email') {
+    if (mode === 'login') return api.emailLogin(email, password)
+    if (mode === 'register') return api.emailQuickRegister(email, password)
   }
 
-  if (mode === 'login') return api.emailLogin(normalizedIdentity, password)
-  if (mode === 'register') return api.emailRegister(normalizedIdentity, code, password)
-  return api.emailResetPassword(normalizedIdentity, code, password)
+  throw new Error('Unsupported auth mode for this channel')
 }

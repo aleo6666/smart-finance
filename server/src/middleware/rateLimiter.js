@@ -1,12 +1,12 @@
 import rateLimit from 'express-rate-limit'
 
-/** 严格限制：登录/注册/改密，15分钟内同一IP最多10次 */
+/** 严格限制：登录/注册/改密，5分钟内同一IP最多10次 */
 export const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
+  windowMs: 5 * 60 * 1000,
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { success: false, error: '操作过于频繁，请15分钟后再试' }
+  message: { success: false, error: '操作过于频繁，请5分钟后再试' }
 })
 
 /** 通用限制：所有API，1分钟60次 */

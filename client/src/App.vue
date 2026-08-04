@@ -6,13 +6,13 @@
   <template v-else>
     <aside class="sidebar" :class="{ open: store.sidebarOpen }">
       <div class="sidebar-header">
-        <h1>💰 财务记账助手</h1>
-        <p class="subtitle">智能记账，轻松理财</p>
+        <h1>💰 智能财务顾问</h1>
+        <p class="subtitle">AI驱动的个人财务顾问</p>
       </div>
 
       <nav class="sidebar-nav">
         <router-link to="/" exact-active-class="active">
-          <span class="icon">💬</span> 智能记账
+          <span class="icon">💬</span> 智能顾问
         </router-link>
         <router-link to="/reports" active-class="active">
           <span class="icon">📊</span> 消费分析
@@ -53,6 +53,8 @@
           :value="store.selectedLedgerId" @change="store.selectLedger(+$event.target.value)">
           <option v-for="l in store.ledgers" :key="l.id" :value="l.id">{{ l.icon || '📒' }} {{ l.name }}</option>
         </select>
+
+        <LedgerManager v-if="store.isLoggedIn" />
 
         <span v-if="store.isLoggedIn" class="user-tag" :title="store.user?.nickname || ''">
           👤 {{ store.user?.nickname || '用户' }}
@@ -104,6 +106,7 @@ import { computed, onMounted, watch, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from './stores/app.js'
 import FeedbackModal from './components/FeedbackModal.vue'
+import LedgerManager from './components/LedgerManager.vue'
 
 const store = useAppStore()
 const route = useRoute()
@@ -113,8 +116,8 @@ const isLoginPage = computed(() => route.name === 'login')
 const showFeedback = ref(false)
 
 const pageTitle = computed(() => {
-  const titles = { chat: '智能记账', reports: '消费分析', goals: '目标规划', exchange: '汇率看板', import: '账单导入' }
-  return titles[route.name] || '智能记账'
+  const titles = { chat: '智能顾问', reports: '消费分析', goals: '目标规划', exchange: '汇率看板', import: '账单导入' }
+  return titles[route.name] || '智能顾问'
 })
 
 function handleLogout() {
