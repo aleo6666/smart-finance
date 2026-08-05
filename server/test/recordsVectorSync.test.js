@@ -59,6 +59,7 @@ test('POST /api/records indexes record after DB insert', async () => {
   app.use(express.json())
   app.use('/api/records', createRecordsRouter({
     dbClient,
+    billVectorWriteEnabled: true,
     vectorMemory: {
       embedRecord: async record => indexed.push(record),
       deleteRecordVector: async () => {}
@@ -137,6 +138,7 @@ test('PUT /api/records/:id re-fetches and re-indexes updated row', async () => {
   app.use(express.json())
   app.use('/api/records', createRecordsRouter({
     dbClient,
+    billVectorWriteEnabled: true,
     vectorMemory: {
       embedRecord: async record => indexed.push(record),
       deleteRecordVector: async () => {}
@@ -223,6 +225,7 @@ test('DELETE /api/records/:id removes corresponding vector', async () => {
   app.use(express.json())
   app.use('/api/records', createRecordsRouter({
     dbClient,
+    billVectorWriteEnabled: true,
     vectorMemory: {
       embedRecord: async () => {},
       deleteRecordVector: async recordId => deleted.push(Number(recordId))

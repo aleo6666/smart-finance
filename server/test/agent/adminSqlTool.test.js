@@ -193,6 +193,9 @@ test('admin SQL guard and database failures expose stable errors without interna
     config: {
       agent: { adminSqlEnabled: true },
       adminSql: {
+        host: 'readonly-db.internal',
+        port: 3306,
+        name: 'smart_finance',
         user: 'finance_readonly',
         password: 'db-secret',
         maxRows: 20,
@@ -253,6 +256,9 @@ test('owned pools close once after dataset failure without replacing the safe er
     config: {
       agent: { adminSqlEnabled: true },
       adminSql: {
+        host: 'readonly-db.internal',
+        port: 3306,
+        name: 'smart_finance',
         user: 'finance_readonly',
         password: 'db-secret',
         maxRows: 20,
@@ -370,6 +376,9 @@ test('owned pool close errors do not replace a successful result', async () => {
     config: {
       agent: { adminSqlEnabled: true },
       adminSql: {
+        host: 'readonly-db.internal',
+        port: 3306,
+        name: 'smart_finance',
         user: 'finance_readonly',
         password: 'db-secret',
         maxRows: 20,

@@ -376,6 +376,38 @@ export function getCreateTableStatements() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       UNIQUE KEY uniq_agent_operation (user_id, operation_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+    `CREATE TABLE IF NOT EXISTS audit_logs (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      user_id BIGINT UNSIGNED NULL,
+      method VARCHAR(10) NOT NULL,
+      path VARCHAR(256) NOT NULL,
+      status_code INT NOT NULL,
+      ip VARCHAR(64),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_audit_user (user_id),
+      KEY idx_audit_time (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+    `CREATE TABLE IF NOT EXISTS ledger_members (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      ledger_id BIGINT UNSIGNED NOT NULL,
+      user_id BIGINT UNSIGNED NOT NULL,
+      role VARCHAR(16) NOT NULL DEFAULT 'member',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_ledger_user (ledger_id, user_id),
+      KEY idx_ledger_members_user (user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+    `CREATE TABLE IF NOT EXISTS teams (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(128) NOT NULL,
+      description TEXT,
+      owner_id BIGINT UNSIGNED NOT NULL,
+      invite_code VARCHAR(32) UNIQUE,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_teams_owner (owner_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
   ]
 }

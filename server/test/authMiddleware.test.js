@@ -26,7 +26,7 @@ test('auth middleware requires JWT_SECRET in production', () => {
   const result = importAuthInProduction('')
 
   assert.equal(result.status, 1)
-  assert.match(result.stderr, /JWT_SECRET is required in production/)
+  assert.match(result.stderr, /JWT_SECRET must be changed in production/)
 })
 
 test('auth middleware rejects default-like JWT_SECRET in production', () => {

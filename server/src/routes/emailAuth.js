@@ -208,7 +208,7 @@ export function createEmailAuthRouter({
       userId = await accounts.createEmailAccount({
         email,
         passwordHash,
-        nickname: email.split('@')[0],
+        nickname: (email && email.includes('@') ? email.split('@')[0] : '用户'),
         verifiedAt: now(),
         deviceId: req.deviceId
       })

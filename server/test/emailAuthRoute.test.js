@@ -155,7 +155,7 @@ async function flushBackgroundWork() {
   await new Promise(resolve => setImmediate(resolve))
 }
 
-test('email auth router exposes all four POST endpoints', () => {
+test('email auth router exposes all POST endpoints', () => {
   const { deps } = createDependencies()
   const routes = buildRouter(deps).stack
     .filter(layer => layer.route)
@@ -164,6 +164,7 @@ test('email auth router exposes all four POST endpoints', () => {
   assert.deepEqual(routes, [
     'POST /send-code',
     'POST /register',
+    'POST /register-simple',
     'POST /login',
     'POST /reset-password'
   ])

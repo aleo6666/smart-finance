@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import db from '../db.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { buildReport as defaultBuildReport } from '../services/reportGenerator.js'
 import {
@@ -132,7 +133,49 @@ export function createExportRouter({
     now
   }))
 
+  // 交易数据 CSV 导出
+  router.get('/transactions', async (req, res) => {
+    try {
+      const { format = 'csv', ledgerId, startDate, endDate, category, type } = req.query
+      const query = db('records')
+        .where({ user_id: req.userId })
+        .orderBy('date', 'desc')
+        .orderBy('id', 'desc')
+
+      if (ledgerId) query.where({ ledger_id: Number(ledgerId) })
+      if (startDate) query.where('date', '>=', startDate)
+      if (endDate) query.where('date', '<=', endDate)
+      if (category) query.where({ category })
+      if (type) query.where({ type })
+
+      const records = await query
+      const csv = recordsToCsv(records)
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+      res.setHeader('Content-Disposition', `attachment; filename="transactions-${Date.now()}.csv"`)
+      return res.send('\uFEFF' + csv)
+    } catch (err) {
+      console.error('[Export] transactions failed:', err)
+      return res.status(500).json({ success: false, error: '导出失败' })
+    }
+  })
+
   return router
+}
+
+// CSV 工具函数
+const CSV_HEADERS = ['id', 'type', 'amount', 'currency', 'category', 'description', 'merchant', 'project', 'member', 'date']
+
+function escapeCsvField(value) {
+  if (value === null || value === undefined) return ''
+  const str = String(value)
+  if (/[\",\\n\\r]/.test(str)) return `\"${str.replace(/\"/g, '\"\"')}\"`
+  return str
+}
+
+function recordsToCsv(records) {
+  const head = CSV_HEADERS.join(',')
+  const rows = records.map(r => CSV_HEADERS.map(k => escapeCsvField(r[k])).join(','))
+  return head + '\\n' + rows.join('\\n')
 }
 
 export default createExportRouter()

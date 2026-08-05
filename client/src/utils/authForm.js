@@ -36,7 +36,7 @@ export function purposeForMode(mode) {
 export function isValidAuthPassword(mode, value) {
   if (typeof value !== 'string' || !['login', 'register', 'reset'].includes(mode)) return false
 
-  const minimumLength = mode === 'login' ? 1 : (mode === 'register' ? 4 : 6)
+  const minimumLength = mode === 'login' ? 1 : 6
   return value.length >= minimumLength && new TextEncoder().encode(value).length <= 72
 }
 

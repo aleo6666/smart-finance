@@ -19,6 +19,7 @@ import express from 'express'
 import cors from 'cors'
 import config from './config.js'
 import { authLimiter, apiLimiter, strictLimiter } from './middleware/rateLimiter.js'
+import { auditLogMiddleware } from './middleware/auditLog.js'
 import db from './db.js'
 import { ensureSchema } from './schema.js'
 import { deviceIdMiddleware } from './middleware/deviceId.js'
@@ -35,6 +36,7 @@ import { createDefaultEmailAuthRouter } from './routes/emailAuth.js'
 import ledgersRouter from './routes/ledgers.js'
 import shareRouter from './routes/share.js'
 import exportRouter from './routes/export.js'
+import adminRouter from './routes/admin.js'
 import observeRouter from './routes/observe.js'
 import insightsRouter from './routes/insights.js'
 import datasetsRouter from './routes/datasets.js'
@@ -71,8 +73,9 @@ app.use(deviceIdMiddleware)
 // 频率限制
 app.use('/api/auth', authLimiter)
 app.use('/api', apiLimiter)
+app.use(auditLogMiddleware)
 
-app.use('/api/chat', chatRouter)
+// 路由
 app.use('/api/records', recordsRouter)
 app.use('/api/reports', reportsRouter)
 app.use('/api/goals', goalsRouter)
@@ -85,6 +88,7 @@ app.use('/api/auth/email', createDefaultEmailAuthRouter())
 app.use('/api/ledgers', ledgersRouter)
 app.use('/api/share', shareRouter)
 app.use('/api/export', strictLimiter, exportRouter)
+app.use('/api/admin', adminRouter)
 app.use('/api/observe', observeRouter)
 app.use('/api/insights', insightsRouter)
 app.use('/api/datasets', datasetsRouter)

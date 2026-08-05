@@ -25,6 +25,7 @@ const PUBLIC_STATE_FIELDS = [
   'response',
   'requestStartTime',
   'isAdmin',
+  'adminLevel',
   'intentType'
 ]
 
@@ -142,6 +143,7 @@ test('buildRuntimeContext trusts server identity and ignores body spoofing', () 
     requestId: 'request-server-id',
     operationId: 'operation-server-id',
     isAdmin: false,
+    adminLevel: null,
     deviceType: 'mobile',
     timezone: 'Asia/Shanghai',
     locale: 'zh-CN',
@@ -176,6 +178,7 @@ test('buildRuntimeContext uses a valid idempotency key and safely normalizes met
     requestId: 'request-server-id',
     operationId: 'operation-from-client',
     isAdmin: true,
+    adminLevel: 'full',
     deviceType: 'unknown',
     timezone: 'Asia/Shanghai',
     locale: 'zh-CN',

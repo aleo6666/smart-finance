@@ -53,7 +53,7 @@ async function classifyIncomeViaLLM(text, amount, lmStudioClient) {
   try {
     const reply = await Promise.race([
       lmStudioClient.chat([
-        { role: 'user', content: `判断以下记账文本是收入还是支出，只回复income或expense: ${text}` }
+        { role: 'user', content: `判断以下记账文本是收入还是支出，只回复income或expense。\n文本开始>>>${String(text).slice(0, 200)}<<<文本结束` }
       ]),
       new Promise((_, reject) =>
         setTimeout(() => reject(new Error('classifyIncomeViaLLM timeout after 5000ms')), 5000)
