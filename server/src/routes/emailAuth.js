@@ -17,6 +17,7 @@ import { createLogger } from '../utils/logger.js'
 
 const SALT_ROUNDS = 10
 const MAX_LOGIN_ATTEMPTS = 5
+const DEV_CODE = '000000'  // Development bypass: skip SMTP, use fixed code
 const DUMMY_PASSWORD_HASH = '$2b$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2uheWG/igi.'
 
 const RESET_ACCEPTED = Object.freeze({
@@ -145,11 +146,14 @@ export function createEmailAuthRouter({
       })
     }
 
-    const consumed = await verification.consumeCode({
-      email,
-      purpose: 'register',
-      code
-    })
+    let consumed = { success: true }
+    if (process.env.NODE_ENV !== 'development' || code !== DEV_CODE) {
+      consumed = await verification.consumeCode({
+        email,
+        purpose: 'register',
+        code
+      })
+    }
     if (!consumed.success) {
       return res.status(400).json({
         success: false,

@@ -76,6 +76,7 @@ app.use('/api', apiLimiter)
 app.use(auditLogMiddleware)
 
 // 路由
+app.use('/api/chat', chatRouter)
 app.use('/api/records', recordsRouter)
 app.use('/api/reports', reportsRouter)
 app.use('/api/goals', goalsRouter)
