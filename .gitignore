@@ -36,3 +36,6 @@ yarn-error.log*
 .idea/
 .vscode/
 _deploy_temp/
+.hermes/
+.context/
+*.pdf
