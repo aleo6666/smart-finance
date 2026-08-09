@@ -39,3 +39,9 @@ _deploy_temp/
 .hermes/
 .context/
 *.pdf
+# internal docs (resume / thesis) - not for public repos
+docs/resume*
+docs/facts-*
+docs/project_description.md
+docs/毕业设计*
+docs/第*章*
