@@ -149,7 +149,7 @@ export async function bootstrap() {
 }
 
 async function bootstrapAgent() {
-  const { MemorySaver } = await import('@langchain/langgraph')
+  const { createCheckpointer } = await import('./agent/checkpointer.js')
   const { createFinanceModel } = await import('./agent/model.js')
   const { createAgentGraph } = await import('./agent/graph.js')
   const { buildRuntimeContext } = await import('./agent/runtime.js')
@@ -164,8 +164,8 @@ async function bootstrapAgent() {
   const { createContextLoader } = await import('./agent/memory/contextLoader.js')
   const { createPostTurnMemoryNode } = await import('./agent/nodes/postTurnMemory.js')
 
-  const saver = new MemorySaver()
-  console.warn('[Agent] using MemorySaver (non-persistent checkpoints)')
+  const { saver, redisBacked } = await createCheckpointer()
+  console.warn(`[Agent] checkpointer: ${redisBacked ? 'Redis-backed (ShallowRedisSaver, persistent across restarts)' : 'MemorySaver fallback (non-persistent)'}`)
 
   const model = createFinanceModel({
     baseUrl: config.lmStudio.baseUrl,

@@ -2,7 +2,7 @@
 
 [![部署状态](https://img.shields.io/badge/status-online-brightgreen)](http://8.163.84.206)
 [![Node.js](https://img.shields.io/badge/node-22+-339933)](https://nodejs.org)
-[![LangGraph](https://img.shields.io/badge/LangGraph-0.x-blue)](https://github.com/langchain-ai/langgraphjs)
+[![LangGraph](https://img.shields.io/badge/LangGraph-1.x-blue)](https://github.com/langchain-ai/langgraphjs)
 [![测试](https://img.shields.io/badge/tests-609%2F609-brightgreen)](#)
 [![许可证](https://img.shields.io/badge/license-Unlicensed-red)](#)
 
@@ -57,7 +57,7 @@
 |------|------|
 | Agent 框架 | LangChain.js + LangGraph.js |
 | 后端 | Node.js 22+ / Express / Knex |
-| 数据库 | MySQL 8 / Redis 7 / Qdrant |
+| 数据库 | MySQL 8 / Redis Stack 7.4 (RedisJSON) / Qdrant |
 | 前端 | Vue 3 / Vite / Pinia / ECharts |
 | 验证 | Zod / node-sql-parser |
 | 部署 | Docker Compose / Nginx / 阿里云 ECS |

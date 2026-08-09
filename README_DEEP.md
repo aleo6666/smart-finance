@@ -5,8 +5,8 @@
 
 [![部署状态](https://img.shields.io/badge/status-online-brightgreen)](http://8.163.84.206)
 [![Node.js](https://img.shields.io/badge/node-22+-339933)](https://nodejs.org)
-[![LangGraph](https://img.shields.io/badge/LangGraph-0.x-blue)](https://github.com/langchain-ai/langgraphjs)
-[![测试](https://img.shields.io/badge/tests-233%2F233-brightgreen)](#)
+[![LangGraph](https://img.shields.io/badge/LangGraph-1.x-blue)](https://github.com/langchain-ai/langgraphjs)
+[![测试](https://img.shields.io/badge/tests-609%2F610-brightgreen)](#)
 [![许可证](https://img.shields.io/badge/license-Unlicensed-red)](#许可证)
 
 线上地址：http://8.163.84.206（Docker Compose · 阿里云 ECS）
@@ -366,7 +366,7 @@ export function inRollout(userId, percent) {
 - **Agent 框架**: LangChain.js + LangGraph.js
 - **运行时**: Node.js 22+ / Express
 - **数据库**: MySQL 8 (Knex ORM)
-- **缓存**: Redis 7 (缓存 / Streams / 浅层 Checkpoint)
+- **缓存**: Redis Stack 7.4 (RedisJSON / 浅层 Checkpoint 持久化)
 - **向量库**: Qdrant
 - **验证**: Zod (State Schema) + node-sql-parser (SQL AST)
 
@@ -428,7 +428,7 @@ smart-finance/
 │       │       └── domainAnalysis.js # 子图：领域分析
 │       ├── routes/                   # REST API
 │       ├── services/                 # 业务服务 (3-Agent 等)
-│       └── test/                     # 测试 (233 cases)
+│       └── test/                     # 测试 (610 cases)
 ├── miniprogram/                      # 微信小程序
 ├── docker-compose.yml                # 本地/生产编排
 ├── docs/
@@ -469,7 +469,7 @@ curl http://localhost:3000/api/health/ready
 cd server
 
 # 全量测试
-npm test                  # 233/233 全部通过
+npm test                  # 609/610 通过 (1 skip)
 
 # Agent 专项测试
 npm run test:agent
@@ -487,7 +487,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 | 指标 | 数值 |
 |------|------|
-| 单元测试通过率 | 233/233 (100%) |
+| 单元测试通过率 | 609/610 (1 skip) |
 | Feature-Off 兼容验证 | 20/20 (100%) |
 | 灰度范围 | 0-100%（按用户 ID 哈希分桶） |
 | 回滚速度 | 秒级（环境变量切换） |

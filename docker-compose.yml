@@ -17,7 +17,8 @@ services:
       retries: 10
 
   redis:
-    image: redis:8-alpine
+    # 国内网络: 经 1ms.run 镜像源拉取 (Docker Hub 直连不通); ECS 若遇限流可改回 redis/redis-stack-server:latest
+    image: docker.1ms.run/redis/redis-stack-server:latest
     container_name: finance-redis
     restart: unless-stopped
     healthcheck:
@@ -25,6 +26,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    volumes:
+      - redis_data:/data
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -137,5 +140,6 @@ services:
 
 volumes:
   mysql_data:
+  redis_data:
   qdrant_data:
   backend_uploads:

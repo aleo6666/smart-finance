@@ -13,6 +13,25 @@ export class CheckpointerSetupError extends Error {
   }
 }
 
+async function probeCheckpointer(saver) {
+  const threadId = `__probe__:${Date.now()}`
+  const config = { configurable: { thread_id: threadId } }
+  const checkpoint = {
+    v: 1,
+    ts: new Date().toISOString(),
+    id: `probe-${Date.now()}`,
+    channel_values: {}
+  }
+  try {
+    await saver.put(config, checkpoint, { source: 'probe', step: 0 }, {})
+    const got = await saver.getTuple(config)
+    // 不调用 deleteTuple: ShallowRedisSaver 无此方法, 探针 key 由 defaultTTL 自动清理
+    return got?.checkpoint?.id === checkpoint.id
+  } catch {
+    return false
+  }
+}
+
 export async function createCheckpointer(
   redisUrl = getRedisUrl(),
   {
@@ -34,6 +53,14 @@ export async function createCheckpointer(
         return { saver: new MemorySaver(), redisBacked: false }
       }
     }
+
+    // Real write/read probe — ShallowRedisSaver requires RedisJSON (JSON.SET/GET).
+    // A bare redis image reports redisBacked=true but crashes on first put.
+    if (!(await probeCheckpointer(saver))) {
+      console.warn('[Checkpointer] probe failed (RedisJSON module unavailable?), using MemorySaver fallback')
+      return { saver: new MemorySaver(), redisBacked: false }
+    }
+
     return { saver, redisBacked: true }
   } catch {
     console.warn('[Checkpointer] Redis unavailable, using MemorySaver fallback')
