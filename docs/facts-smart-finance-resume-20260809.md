@@ -27,8 +27,9 @@ LangGraph.js 1.4 + LangChain.js · Node.js 22 / Express / Knex · Vue 3 / Vite /
 - L1 会话元数据（Redis，单会话）：设备/时区/回复风格/最后活跃
 - L2 用户长期记忆（MySQL，跨会话 CRUD）：消费习惯/理财目标/重要日期，工具显式写入需确认
 - L3 近期摘要（每 turn 自动更新）：currentTopics / unfinishedTasks / analysisConclusions，LLM 生成结构化摘要
-- L4 滑动窗口（LangGraph Checkpointer 持久化，Redis）：最近 N 轮上下文，注入时自动去重
+- L4 滑动窗口（LangGraph Checkpointer，Redis Stack 持久化）：最近 N 轮上下文，注入时自动去重，**跨容器重启可恢复** [代码+实测 2026-08-09 线上部署]
 - contextLoader 四层**并行加载**（Promise.allSettled），单层失败自动降级不影响其他层
+- Checkpointer 接入自检探针：Redis 无 RedisJSON 模块时自动回退 MemorySaver（优雅降级，不崩溃）[代码+实测]
 
 ### 3. 3-Agent 主从协同（与图并行的一套规则驱动系统）[代码]
 - Master（调度）：规则驱动 5 种任务模式（simple_query / budget_analysis / period_comparison / category_analysis / comprehensive_analysis），生成 DAG 任务计划，依赖满足的步骤**按轮次并行分发**
@@ -61,6 +62,8 @@ LangGraph.js 1.4 + LangChain.js · Node.js 22 / Express / Knex · Vue 3 / Vite /
 | 数字 | 来源 |
 |---|---|
 | 610 个自动化测试：609 通过 / 1 跳过 / 0 失败，15 个 suite，~20s 跑完 | [实测] 2026-08-09 |
+| **Redis Stack Checkpoint 持久化：跨容器重启会话可恢复（ShallowRedisSaver + 探针自检降级）** | [实测] 2026-08-09 线上部署，backend 日志 Redis-backed |
+| **线上 LangGraph Agent 100% 放量运行（ENABLE_LANGGRAPH_AGENT=true, ROLLOUT=100），chat 实测 source=langgraph** | [实测] 2026-08-09 |
 | Agent 评估框架：22 个确定性用例 × 7 维度（record 4 / query 3 / analysis 2 / budget 3 / safety 4 / memory 2 / routing 4） | [代码] eval/cases.js |
 | 12 节点状态图 + 条件路由 | [代码] graph.js |
 | 四层记忆 | [代码] memory/ |
