@@ -3,7 +3,7 @@
 [![部署状态](https://img.shields.io/badge/status-online-brightgreen)](http://8.163.84.206)
 [![Node.js](https://img.shields.io/badge/node-22+-339933)](https://nodejs.org)
 [![LangGraph](https://img.shields.io/badge/LangGraph-1.x-blue)](https://github.com/langchain-ai/langgraphjs)
-[![测试](https://img.shields.io/badge/tests-609%2F609-brightgreen)](#)
+[![测试](https://img.shields.io/badge/tests-614%2F614-brightgreen)](#)
 [![许可证](https://img.shields.io/badge/license-Unlicensed-red)](#)
 
 基于 LangGraph 的 AI-Native 智能财务顾问——从自然语言记账到财务健康评估，从四层记忆到三级安全防线，从本地开发到 Docker 灰度部署的全链路实现。
@@ -30,12 +30,14 @@
 - **财务健康评估**：储蓄率、收支平衡、预算执行率、消费结构
 - **财务健康评分**：0-100 分综合评估（5 维度加权）
 - **目标规划**：储蓄目标 / 大额消费计划可行性分析
+- **深度财务分析**：LLM 结构化解读（超支分类 / 异常提示 / 下月规划建议），Schema 约束 + 免责声明
 - **个性化建议**：基于消费模式的结构化改进建议
 
 ### Agent 架构
 - LangGraph StateGraph 编排，12 节点 + 条件路由
 - 四层记忆：会话元数据 / 长期记忆 / 近期摘要 / 滑动窗口
 - 确定性领域编排：LLM 决策 + 纯函数计算（预算执行 / 环比 / 占比 / 趋势）
+- 财务顾问工具链：健康评分 / 目标规划（确定性）+ 深度分析节点（结构化输出）
 - 灰度架构：Feature Flag + 哈希分桶 + 秒级回滚
 
 ### 安全控制
@@ -89,7 +91,7 @@ npm run dev:client          # 前端开发
 
 cd server
 
-npm test                    # 全量测试 (609 tests)
+npm test                    # 全量测试 (615 tests)
 npm run test:agent          # Agent 测试
 npm run eval                # Agent 评估 (22 用例)
 npm run test:eval -- --test-name-pattern="advisor"  # 财务顾问评估
