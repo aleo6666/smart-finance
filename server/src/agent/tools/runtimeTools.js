@@ -1,5 +1,6 @@
 import { createDomainTools } from './domainTools.js'
 import { createMemoryTools } from './memoryTools.js'
+import { createAdvisorTools } from './advisorTool.js'
 
 export function createRuntimeTools({
   runtime,
@@ -12,6 +13,10 @@ export function createRuntimeTools({
       runtime,
       datasetStore,
       operationStore
+    }),
+    ...createAdvisorTools({
+      runtime,
+      datasetStore
     })
   ]
 
