@@ -152,35 +152,34 @@ function routeAfterModel(state) {
 }
 ```
 
-### 2.4 3-Agent 主从协同（并行架构）
+### 2.4 确定性领域编排（检索/计算分离）
 
-与 LangGraph Agent 并行存在的一套规则驱动多 Agent 系统：
+LangGraph 内的确定性计算层——LLM 只做意图理解与参数提取，检索与计算由纯函数工具/子图完成：
 
 ```
 用户提问
    ↓
-┌─────────────────────┐
-│   Master Agent       │ ← 意图识别 / 任务拆解 / 结果汇总
-│   (规则驱动, 5 种模式)│
-└──────┬──────┬────────┘
-       │      │
-       ↓      ↓
-┌──────────┐ ┌──────────────┐
-│ Retrieval │ │ Calculator   │
-│ Agent     │ │ Agent        │
-│ 4 种检索  │ │ 5 种计算     │
-└──────────┘ └──────────────┘
+┌──────────────────────────┐
+│ call_model               │ ← LLM 决策：意图理解 / 工具选择
+└────────────┬─────────────┘
+             ↓ 并行执行
+┌────────────────┐  ┌───────────────────────┐
+│ 检索 (domain)   │  │ 计算 (calculate)       │
+│ query_transactions│  │ calculate_finance_   │
+│ check_budget    │  │ metrics（4 种确定性计算）│
+└────────────────┘  └───────────────────────┘
 ```
 
-| 任务模式 | 触发 | Agent 组合 |
-|----------|------|-----------|
-| `simple_query` | 花了多少、统计 | 仅检索 |
-| `budget_analysis` | 预算、超支 | 检索+计算 |
-| `period_comparison` | 对比、环比 | 检索+计算 |
-| `category_analysis` | 分类、占比 | 检索+计算 |
-| `comprehensive_analysis` | 全面、深度 | 多检索+多计算 |
+| 计算类型 | 说明 |
+|----------|------|
+| `budget_execution` | 预算执行率 / 超支 |
+| `period_comparison` | 环比 / 同比 |
+| `category_ratio` | 分类占比 |
+| `spending_trend` | 消费趋势 |
 
-**设计原则**：关注点分离——检索 Agent 只读不计算，计算 Agent 纯函数无 IO，Master 只调度不碰业务。
+**设计原则**：关注点分离保留——检索只读不计算，计算为纯函数无 IO；调度由 LLM 原生路由完成（不再依赖正则规则）。
+
+> 历史：早期版本曾以规则驱动 Master / Retrieval / Calculator 三 Agent 主从并行实现相同能力，已由本节架构取代；`use3Agent` 灰度开关保留用于回退对比，默认走 LangGraph。
 
 ---
 
@@ -427,12 +426,12 @@ smart-finance/
 │       │   └── subgraphs/
 │       │       └── domainAnalysis.js # 子图：领域分析
 │       ├── routes/                   # REST API
-│       ├── services/                 # 业务服务 (3-Agent 等)
+│       ├── services/                 # 业务服务 (确定性计算/检索等)
 │       └── test/                     # 测试 (610 cases)
 ├── miniprogram/                      # 微信小程序
 ├── docker-compose.yml                # 本地/生产编排
 ├── docs/
-│   └── 3AGENT_ARCHITECTURE.md        # 3-Agent 架构文档
+│   └── 3AGENT_ARCHITECTURE.md        # 历史架构文档（已被 §2.4 取代）
 └── scripts/                          # 部署脚本
 ```
 

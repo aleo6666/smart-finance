@@ -35,7 +35,7 @@
 ### Agent 架构
 - LangGraph StateGraph 编排，12 节点 + 条件路由
 - 四层记忆：会话元数据 / 长期记忆 / 近期摘要 / 滑动窗口
-- 3-Agent 主从协同：Master / Retrieval / Calculator
+- 确定性领域编排：LLM 决策 + 纯函数计算（预算执行 / 环比 / 占比 / 趋势）
 - 灰度架构：Feature Flag + 哈希分桶 + 秒级回滚
 
 ### 安全控制
