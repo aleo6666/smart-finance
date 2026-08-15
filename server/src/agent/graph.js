@@ -28,6 +28,7 @@ import {
 } from './nodes/riskAndConfirmation.js'
 import { hashOperation } from './stores/operationStore.js'
 import { parseTextToolCalls } from './utils/textToolCalls.js'
+import { createSynthesisNode } from './nodes/synthesizeFinancialAnalysis.js'
 
 const DATASET_SCOPE_FIELDS = new Set([
   'month',
@@ -438,6 +439,12 @@ export function createAgentGraph({
   const toolNode = new ToolNode(safeExecutableTools(tools), {
     handleToolErrors: false
   })
+  // 深度分析节点：model 不支持结构化输出时置空，路由自动回退 call_model
+  const synthesisNode =
+    typeof model.withStructuredOutput === 'function' &&
+    datasetStore && typeof datasetStore.get === 'function'
+      ? createSynthesisNode({ model, datasetStore })
+      : null
 
   const validateToolCall = async (state, graphConfig) => {
     const result = await baseValidateToolCall(state, graphConfig)
@@ -784,10 +791,20 @@ export function createAgentGraph({
       ? 'confirmed_write_tools'
       : 'terminate_confirmation'
   }
-  const routeDomainTools = state =>
-    (state.errors ?? []).some(item => item?.fatal === true)
-      ? 'finalize_response'
-      : 'call_model'
+  const routeDomainTools = state => {
+    if ((state.errors ?? []).some(item => item?.fatal === true)) {
+      return 'finalize_response'
+    }
+    // domain_tools 执行后数据已入 datasetStore：深度分析意图且数据集已取齐 → 走结构化分析
+    if (
+      synthesisNode &&
+      analysisIntent(state.intentType) &&
+      (state.datasetRefs?.length ?? 0) > 0
+    ) {
+      return 'synthesize_analysis'
+    }
+    return 'call_model'
+  }
   const routeConfirmedWrite = state => {
     if ((state.errors ?? []).some(item => item?.fatal === true)) {
       return 'finalize_response'
@@ -838,14 +855,18 @@ export function createAgentGraph({
       'call_model',
       'finalize_response'
     ])
-    .addConditionalEdges('domain_tools', routeDomainTools, [
-      'call_model',
-      'finalize_response'
-    ])
+    .addConditionalEdges('domain_tools', routeDomainTools, synthesisNode
+      ? ['call_model', 'finalize_response', 'synthesize_analysis']
+      : ['call_model', 'finalize_response'])
     .addEdge('terminate_confirmation', 'post_turn_memory')
     .addEdge('finalize_response', 'post_turn_memory')
     .addEdge('post_turn_memory', 'observe')
     .addEdge('observe', END)
+
+  if (synthesisNode) {
+    graph.addNode('synthesize_analysis', synthesisNode)
+      .addEdge('synthesize_analysis', 'finalize_response')
+  }
 
   const compiled = graph.compile({ checkpointer })
   const invoke = compiled.invoke.bind(compiled)

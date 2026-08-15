@@ -996,3 +996,130 @@ test('concurrent requests keep domain-gap provenance isolated by invocation', as
   assert.equal(resultB.errors.at(-1).code, 'FORBIDDEN')
   assert.equal(resultA.response.success, true)
 })
+
+// —— 财务顾问深度分析节点 synthesize_analysis 集成用例 ——
+
+const SYNTHESIS_ANALYSIS = {
+  dataSufficiency: 'sufficient',
+  objectiveAnalysis: ['本月餐饮支出占预算 85%'],
+  overspentCategories: ['餐饮'],
+  anomalies: ['8月3日有一笔异常大额支出'],
+  nextMonthSuggestions: ['为餐饮设置每周上限'],
+  disclaimer: '本分析仅供记账与预算参考，不构成投资建议。'
+}
+
+function synthesisQueryTool() {
+  return tool(async () => ({
+    datasetRef: 'ds_tx',
+    count: 3,
+    scope: { month: '2026-07' }
+  }), {
+    name: 'query_transactions',
+    description: 'query transactions within a scope',
+    schema: z.object({})
+  })
+}
+
+function synthesisQueryCall() {
+  return new AIMessage({
+    content: '',
+    tool_calls: [{
+      id: 'query-1',
+      name: 'query_transactions',
+      args: {},
+      type: 'tool_call'
+    }]
+  })
+}
+
+// 同时提供 bindTools（call_model 用）与 withStructuredOutput（synthesis 用）的模型
+function synthesisModel(boundOutputs, analysis, structuredInvocations) {
+  return {
+    bindTools() {
+      return {
+        async invoke() {
+          return boundOutputs.shift()
+        }
+      }
+    },
+    withStructuredOutput() {
+      return {
+        async invoke() {
+          structuredInvocations?.push(1)
+          return analysis
+        }
+      }
+    }
+  }
+}
+
+test('analysis intent with dataset refs routes through synthesis into a readable analysis', async () => {
+  const structuredInvocations = []
+  const model = synthesisModel(
+    [synthesisQueryCall()],
+    SYNTHESIS_ANALYSIS,
+    structuredInvocations
+  )
+  const { graph } = createGraphFixture({
+    model,
+    outputs: [],
+    tools: [synthesisQueryTool()]
+  })
+
+  const result = await invoke(graph, inputState('帮我分析本月支出情况'))
+
+  assert.equal(structuredInvocations.length, 1)
+  assert.equal(result.response.success, true)
+  assert.equal(result.response.intent, 'analysis')
+  assert.match(result.response.message, /【财务分析】/)
+  assert.match(result.response.message, /本月餐饮支出占预算 85%/)
+  assert.match(result.response.message, /下月规划建议/)
+  assert.match(result.response.message, /免责声明/)
+})
+
+test('non-analysis intent skips synthesis and finalizes the plain model answer', async () => {
+  const structuredInvocations = []
+  const model = synthesisModel(
+    [synthesisQueryCall(), new AIMessage('已为你查询本月账单。')],
+    SYNTHESIS_ANALYSIS,
+    structuredInvocations
+  )
+  const { graph } = createGraphFixture({
+    model,
+    outputs: [],
+    tools: [synthesisQueryTool()]
+  })
+
+  const result = await invoke(graph, inputState('查询本月账单'))
+
+  assert.equal(structuredInvocations.length, 0)
+  assert.equal(result.response.success, true)
+  assert.equal(result.response.intent, 'query')
+  assert.equal(result.response.message, '已为你查询本月账单。')
+})
+
+test('synthesis node failure degrades to finalize without crashing the graph', async () => {
+  const model = {
+    bindTools() {
+      return { async invoke() { return synthesisQueryCall() } }
+    },
+    withStructuredOutput() {
+      return {
+        async invoke() {
+          throw new Error('structured output parse failed')
+        }
+      }
+    }
+  }
+  const { graph } = createGraphFixture({
+    model,
+    outputs: [],
+    tools: [synthesisQueryTool()]
+  })
+
+  const result = await invoke(graph, inputState('帮我分析本月支出情况'))
+
+  assert.equal(result.response.success, false)
+  assert.deepEqual(result.response.errorCodes, ['SYNTHESIS_FAILED'])
+  assert.equal(result.response.message, '请求无法安全执行，请调整后重试。')
+})
