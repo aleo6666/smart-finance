@@ -90,7 +90,7 @@ function parseSingleRecord(text, date) {
 }
 
 // 拆分出 ≥2 个有效子句时返回多笔结果；否则返回 null，交给单笔逻辑。
-function buildMultiRecordResult(text) {
+export function buildMultiRecordResult(text) {
   const clauses = splitMultiClauses(text)
   if (clauses.length < 2) return null
   const date = extractDate(text)

@@ -1,0 +1,18 @@
+{
+  "name": "Smart Finance 复杂记账测试集",
+  "created": "2026-08-16",
+  "total": 30,
+  "passed": 30,
+  "pass_rate": "100.0%",
+  "nature": "确定性规则引擎（LLM 不参与拆单，结果可复现）",
+  "buckets": {
+    "拆分": { "total": 10, "pass": 10, "rate": "100.0%" },
+    "不误拆": { "total": 6, "pass": 6, "rate": "100.0%" },
+    "追问": { "total": 4, "pass": 4, "rate": "100.0%" },
+    "收支混合": { "total": 4, "pass": 4, "rate": "100.0%" },
+    "边界": { "total": 4, "pass": 4, "rate": "100.0%" },
+    "非记账": { "total": 2, "pass": 2, "rate": "100.0%" }
+  },
+  "runner": "node scripts/run_multi_record_eval.mjs",
+  "cases": "docs/eval/multi-record-cases.mjs"
+}
