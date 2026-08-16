@@ -22,3 +22,12 @@ const app = createApp(App)
 app.use(createPinia())
 app.use(router)
 app.mount('#app')
+
+// PWA Service Worker 注册（load 后注册，不影响首屏性能）
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch((err) => {
+      console.warn('Service Worker 注册失败:', err)
+    })
+  })
+}
