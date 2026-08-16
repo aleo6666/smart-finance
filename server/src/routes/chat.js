@@ -19,14 +19,7 @@ import {
   buildFinanceQueryReply,
   queryFinanceSummary as defaultQueryFinanceSummary
 } from '../services/financeQuery.js'
-import {
-  planMultiStepTask as defaultPlanMultiStep,
-  executePlan as defaultExecutePlan,
-  detectCompoundIntent
-} from '../services/orchestratorAgent.js'
-import { recordAgentEvent as defaultRecordAgentEvent } from '../services/observeService.js'
 import { submitAdviceForReview as defaultSubmitAdviceForReview } from '../services/adviceReview.js'
-import { processQuery as defaultMasterProcessQuery } from '../services/masterAgent.js'
 
 // Lazily set during agent bootstrap — avoids import-time dependency on agent modules
 let _agentService = null
@@ -210,11 +203,7 @@ export function createChatRouter({
   retrieveSimilar = defaultRetrieveSimilar,
   queryFinanceSummary = defaultQueryFinanceSummary,
   ragService = null,
-  planMultiStep = defaultPlanMultiStep,
-  executePlan = defaultExecutePlan,
-  recordAgentEvent = defaultRecordAgentEvent,
   submitAdviceForReview = defaultSubmitAdviceForReview,
-  masterProcessQuery = defaultMasterProcessQuery,
   now = () => new Date()
 } = {}) {
   const router = Router()
@@ -307,109 +296,10 @@ export function createChatRouter({
         }
       }
 
-      // ---- 极简 3 Agent 架构（主从协同）----
-      // 通过 use3Agent 参数启用新架构，用于灰度验证
-      const use3Agent = req.body.use3Agent === true || req.query.use3Agent === 'true'
-      if (use3Agent && userId) {
-        const started = Date.now()
-        const masterResult = await masterProcessQuery({ userId, message })
-
-        // 记录到观测系统
-        recordAgentEvent({
-          userId,
-          callType: 'master_agent',
-          latencyMs: Date.now() - started,
-          success: masterResult.success
-        }).catch(() => {})
-
-        // 保存对话上下文
-        await appendTurn(identity, message, masterResult.answer || '').catch(error => {
-          console.warn('[Chat] 3Agent context append skipped:', error.message)
-        })
-
-        return res.json({
-          success: masterResult.success,
-          data: {
-            intent: 'query',
-            message: masterResult.answer,
-            agent: '3agent',
-            pattern: masterResult.pattern,
-            execution: masterResult.execution,
-            error: masterResult.error
-          }
-        })
-      }
-
       const result = await processMessage(identity, message)
 
-      // ---- 编排链路：复合意图走多步编排 ----
-      // 放宽：query/advice/chat 都允许，只要 compoundIntent 命中且已登录
-      const compoundIntent = detectCompoundIntent(message)
-      const orchestratedIntents = ['query', 'advice', 'chat']
-      let orchestrationRan = false
-      const shouldAttemptOrchestration = compoundIntent && orchestratedIntents.includes(result.intent) && userId
-
-      if (shouldAttemptOrchestration) {
-        const started = Date.now()
-        try {
-          const hints = extractQueryHints(message, { context: await getContextSafely(identity).catch(() => []) })
-          const plan = await planMultiStep({ message, userId, hints })
-          const execResult = await executePlan({
-            plan,
-            userId,
-            recordStepFn: ({ userId: uid, stepIntent, latencyMs, success, errorMessage }) =>
-              recordAgentEvent({ userId: uid, callType: `orchestrator_${stepIntent}`, latencyMs, success, errorMessage }).catch(() => {})
-          })
-
-          // 审核（中高风险不影响报告输出，只追加提示）
-          let reviewResult = null
-          if (execResult.advice) {
-            try {
-              reviewResult = await submitAdviceForReview({
-                userId,
-                adviceText: execResult.advice,
-                context: { planId: execResult.planId, compoundIntent, message }
-              })
-            } catch (e) {
-              console.warn('[Chat] advice review skipped:', e.message)
-            }
-          }
-
-          // 消息优先级：编排报告 > 编排摘要 > NLU 原消息
-          const primaryMsg = execResult.report || execResult.summary || result.message
-          // 审核提示作为脚注追加，不覆盖报告正文
-          const reviewNote = reviewResult?.needsReview
-            ? `\n\n---\n${reviewResult.disclaimer}\n⚠️ 该建议已提交人工审核，通过后将通知您。`
-            : ''
-          result.message = primaryMsg + reviewNote
-
-          result.orchestrator = {
-            planId: execResult.planId,
-            intent: compoundIntent,
-            steps: execResult.steps?.map(s => ({ intent: s.intent, success: s.success, latencyMs: s.latencyMs })),
-            succeededCount: execResult.succeededCount,
-            failedCount: execResult.failedCount
-          }
-          if (reviewResult) {
-            result.review = { id: reviewResult.id, riskLevel: reviewResult.riskLevel, needsReview: reviewResult.needsReview }
-          }
-
-          orchestrationRan = true
-
-          recordAgentEvent({
-            userId,
-            callType: 'orchestrator',
-            latencyMs: Date.now() - started,
-            success: execResult.success
-          }).catch(() => {})
-        } catch (error) {
-          console.warn('[Chat] orchestrator skipped:', error.message)
-          result.orchestrator = { error: error.message }
-        }
-      }
-
-      // ---- 常规记忆/RAG：编排已处理则跳过 ----
-      const shouldUseMemory = ['query', 'advice', 'chat'].includes(result.intent) && !orchestrationRan
+      // ---- 常规记忆/RAG ----
+      const shouldUseMemory = ['query', 'advice', 'chat'].includes(result.intent)
       if (shouldUseMemory) {
         const context = await getContextSafely(identity)
         const hints = extractQueryHints(message, { context })
@@ -458,8 +348,8 @@ export function createChatRouter({
         }
       }
 
-      // ---- 建议审核：非编排路径的 advice 意图（编排已审核则跳过） ----
-      if (result.intent === 'advice' && userId && result.message && !orchestrationRan) {
+      // ---- 建议审核：advice 意图 ----
+      if (result.intent === 'advice' && userId && result.message) {
         try {
           const reviewResult = await submitAdviceForReview({
             userId,
