@@ -71,10 +71,16 @@ export function createRecordsRouter({
     if (!amount || !category || !date) return res.status(400).json({ success: false, error: '缺少 amount/category/date' })
 
     const cnyAmount = await toCny(Number(amount), currency)
+    // 缺省账本 → 自动归属用户默认账本（保证前端按账本查询能查到）
+    let finalLedgerId = ledgerId ? Number(ledgerId) : null
+    if (!finalLedgerId) {
+      const defaultLedger = await dbClient('ledgers').where({ user_id: req.userId }).first()
+      finalLedgerId = defaultLedger ? defaultLedger.id : null
+    }
     const [id] = await dbClient('records').insert({
       device_id: `user-${req.userId}`,
       user_id: req.userId,
-      ledger_id: ledgerId ? Number(ledgerId) : null,
+      ledger_id: finalLedgerId,
       type,
       amount,
       currency,

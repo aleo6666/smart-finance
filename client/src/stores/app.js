@@ -89,6 +89,7 @@ export const useAppStore = defineStore('app', {
           content: data.message,
           intent: data.intent,
           data: data.data,
+          evidence: data.evidence,
           time: new Date()
         })
 

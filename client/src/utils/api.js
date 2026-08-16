@@ -207,6 +207,14 @@ export const api = {
     })
   },
 
+  // ====== 语音转写 ======
+  transcribeAudio(formData) {
+    return request('/api/speech/transcribe', {
+      method: 'POST',
+      body: formData
+    })
+  },
+
   // ====== v2: 记录（多维筛选） ======
   getRecords(params = {}) {
     const qs = new URLSearchParams(params).toString()
@@ -473,6 +481,20 @@ export const api = {
   rollbackImport(batchId) {
     return request(`/api/import/${batchId}/rollback`, {
       method: 'POST'
+    })
+  },
+
+  // ====== 资产台账 ======
+  getAssetsOverview() {
+    return request('/api/assets/overview')
+  },
+  getAssets() {
+    return request('/api/assets')
+  },
+  createAsset(data) {
+    return request('/api/assets', {
+      method: 'POST',
+      body: JSON.stringify(data)
     })
   }
 }

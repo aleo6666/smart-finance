@@ -7,12 +7,8 @@ import {
 
 function analysisFixture(extra = {}) {
   return {
-    dataSufficiency: 'sufficient',
-    objectiveAnalysis: ['food spending used 85% of budget'],
-    overspentCategories: [],
-    anomalies: [],
-    nextMonthSuggestions: ['set a weekly food cap'],
-    disclaimer: 'bookkeeping and budgeting reference only',
+    summary: '本月餐饮支出偏高。',
+    points: [{ text: '餐饮合计 180 元，占 86%。', recordIds: [8, 9, 10] }],
     ...extra
   }
 }
@@ -36,7 +32,7 @@ test('synthesis model is not bound to tools', async () => {
   let bound = false
   const model = {
     bindTools: () => { bound = true },
-    withStructuredOutput: () => ({ invoke: async () => analysisFixture() })
+    async invoke() { return JSON.stringify(analysisFixture()) }
   }
 
   await createSynthesisNode({
@@ -51,13 +47,9 @@ test('synthesis fetches scoped datasets and excludes raw window messages from pa
   const getCalls = []
   let payload
   const model = {
-    withStructuredOutput() {
-      return {
-        async invoke(messages) {
-          payload = JSON.parse(messages.at(-1).content)
-          return analysisFixture()
-        }
-      }
+    async invoke(messages) {
+      payload = JSON.parse(messages.at(-1).content)
+      return JSON.stringify(analysisFixture())
     }
   }
   const node = createSynthesisNode({
@@ -85,20 +77,12 @@ test('synthesis fetches scoped datasets and excludes raw window messages from pa
 test('synthesis passes through insufficient data without fabricating amounts', async () => {
   let payload
   const model = {
-    withStructuredOutput() {
-      return {
-        async invoke(messages) {
-          payload = JSON.parse(messages.at(-1).content)
-          return analysisFixture({
-            dataSufficiency: 'insufficient',
-            objectiveAnalysis: ['not enough transaction data yet'],
-            overspentCategories: [],
-            anomalies: [],
-            nextMonthSuggestions: ['record daily expenses before analysis'],
-            disclaimer: 'bookkeeping and budgeting reference only'
-          })
-        }
-      }
+    async invoke(messages) {
+      payload = JSON.parse(messages.at(-1).content)
+      return JSON.stringify(analysisFixture({
+        summary: '',
+        points: []
+      }))
     }
   }
 
@@ -109,7 +93,8 @@ test('synthesis passes through insufficient data without fabricating amounts', a
     context: { requestId: 'request-7' }
   })
 
-  assert.equal(result.response.dataSufficiency, 'insufficient')
+  assert.equal(result.response.type, 'financial_analysis')
+  assert.ok(result.response.evidence)
   assert.doesNotMatch(JSON.stringify(result.response), /\d{2,}/)
   assert.deepEqual(payload.datasets, [{ rows: [], summary: { count: 0 } }])
 })

@@ -1000,12 +1000,11 @@ test('concurrent requests keep domain-gap provenance isolated by invocation', as
 // —— 财务顾问深度分析节点 synthesize_analysis 集成用例 ——
 
 const SYNTHESIS_ANALYSIS = {
-  dataSufficiency: 'sufficient',
-  objectiveAnalysis: ['本月餐饮支出占预算 85%'],
-  overspentCategories: ['餐饮'],
-  anomalies: ['8月3日有一笔异常大额支出'],
-  nextMonthSuggestions: ['为餐饮设置每周上限'],
-  disclaimer: '本分析仅供记账与预算参考，不构成投资建议。'
+  summary: '本月餐饮支出占预算比例偏高。',
+  points: [
+    { text: '本月餐饮支出占预算比例偏高。', recordIds: [8, 9, 10] },
+    { text: '下月规划建议：为餐饮设置每周上限。', recordIds: [] }
+  ]
 }
 
 function synthesisQueryTool() {
@@ -1032,7 +1031,7 @@ function synthesisQueryCall() {
   })
 }
 
-// 同时提供 bindTools（call_model 用）与 withStructuredOutput（synthesis 用）的模型
+// 同时提供 bindTools（call_model 用）与顶层 invoke（synthesis 用）的模型
 function synthesisModel(boundOutputs, analysis, structuredInvocations) {
   return {
     bindTools() {
@@ -1042,13 +1041,9 @@ function synthesisModel(boundOutputs, analysis, structuredInvocations) {
         }
       }
     },
-    withStructuredOutput() {
-      return {
-        async invoke() {
-          structuredInvocations?.push(1)
-          return analysis
-        }
-      }
+    async invoke() {
+      structuredInvocations?.push(1)
+      return JSON.stringify(analysis)
     }
   }
 }
@@ -1063,7 +1058,19 @@ test('analysis intent with dataset refs routes through synthesis into a readable
   const { graph } = createGraphFixture({
     model,
     outputs: [],
-    tools: [synthesisQueryTool()]
+    tools: [synthesisQueryTool()],
+    datasetStore: {
+      async get() {
+        return {
+          rows: [
+            { id: 8, amount: 80, category: '餐饮', date: '2026-08-03', description: '聚餐' },
+            { id: 9, amount: 60, category: '餐饮', date: '2026-08-07', description: '聚餐' },
+            { id: 10, amount: 40, category: '餐饮', date: '2026-08-15', description: '聚餐' }
+          ],
+          summary: { total: 180, count: 3 }
+        }
+      }
+    }
   })
 
   const result = await invoke(graph, inputState('帮我分析本月支出情况'))
@@ -1072,7 +1079,7 @@ test('analysis intent with dataset refs routes through synthesis into a readable
   assert.equal(result.response.success, true)
   assert.equal(result.response.intent, 'analysis')
   assert.match(result.response.message, /【财务分析】/)
-  assert.match(result.response.message, /本月餐饮支出占预算 85%/)
+  assert.match(result.response.message, /本月餐饮支出占预算比例偏高/)
   assert.match(result.response.message, /下月规划建议/)
   assert.match(result.response.message, /免责声明/)
 })
@@ -1103,12 +1110,8 @@ test('synthesis node failure degrades to finalize without crashing the graph', a
     bindTools() {
       return { async invoke() { return synthesisQueryCall() } }
     },
-    withStructuredOutput() {
-      return {
-        async invoke() {
-          throw new Error('structured output parse failed')
-        }
-      }
+    async invoke() {
+      throw new Error('structured output parse failed')
     }
   }
   const { graph } = createGraphFixture({

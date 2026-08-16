@@ -71,7 +71,10 @@ export function createAgentService({
             intent: result?.response?.intent ?? result?.intentType ?? 'chat',
             message: result?.response?.message ?? '',
             errorCodes: result?.response?.errorCodes ?? [],
-            source: 'langgraph'
+            source: 'langgraph',
+            ...(result?.response?.evidence
+              ? { evidence: result.response.evidence }
+              : {})
           }
         }
       } catch (error) {

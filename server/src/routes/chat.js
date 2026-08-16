@@ -366,7 +366,7 @@ export function createChatRouter({
         }
       }
 
-      if (result.intent === 'record' && result.data?.amount) {
+      if (result.intent === 'record' && (result.data?.amount || (Array.isArray(result.data?.records) && result.data.records.length > 0))) {
         if (!userId) {
           return res.json({ success: true, data: { intent: 'chat', message: '请先登录后再记账。', data: null } })
         }

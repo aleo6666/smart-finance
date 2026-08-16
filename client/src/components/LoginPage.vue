@@ -1,7 +1,7 @@
 <template>
   <div class="login-page">
     <div class="login-card">
-      <h1>💰 智能财务顾问</h1>
+      <h1>智能财务顾问</h1>
       <p class="subtitle">邮箱登录，轻松管理财务</p>
 
       <!-- Tab -->
@@ -42,7 +42,7 @@
         <div v-if="success" class="success-msg" role="status">{{ success }}</div>
 
         <button type="submit" class="btn btn-primary btn-lg btn-full" :disabled="loading">
-          {{ loading ? '处理中...' : mode === 'login' ? '🔐 登录' : '📝 注册' }}
+          {{ loading ? '处理中...' : mode === 'login' ? '登录' : '注册' }}
         </button>
       </form>
     </div>
@@ -127,39 +127,53 @@ onUnmounted(() => {
 .login-page {
   display: flex; align-items: center; justify-content: center;
   min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #f6f9fc;
+  position: relative;
+}
+.login-page::before {
+  content: '';
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(600px 300px at 85% 10%, rgba(83,58,253,0.06), transparent 60%),
+    radial-gradient(500px 280px at 10% 90%, rgba(83,58,253,0.05), transparent 60%);
+  pointer-events: none;
 }
 .login-card {
-  background: #fff; border-radius: 16px; padding: 40px 36px;
+  background: #fff; border-radius: 8px; padding: 44px 40px;
   text-align: center; max-width: 420px; width: 90%;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+  border: 1px solid #e5edf5;
+  box-shadow: rgba(50,50,93,0.25) 0px 30px 45px -30px, rgba(0,0,0,0.1) 0px 18px 36px -18px;
+  position: relative;
 }
-.login-card h1 { font-size: 26px; margin-bottom: 6px; color: #333; }
-.subtitle { color: #888; margin-bottom: 24px; font-size: 14px; }
+.login-card h1 { font-size: 26px; margin-bottom: 6px; color: #061b31; font-weight: 600; letter-spacing: -0.3px; }
+.subtitle { color: #64748d; margin-bottom: 28px; font-size: 14px; }
 
-.tab-bar { display: flex; border-radius: 10px; overflow: hidden; border: 1px solid #e2e8f0; margin-bottom: 24px; }
+.tab-bar { display: flex; border-radius: 6px; overflow: hidden; border: 1px solid #e5edf5; margin-bottom: 24px; background: #f6f9fc; }
 .tab-bar button {
-  flex: 1; padding: 10px; border: none; background: #f8fafc;
-  cursor: pointer; font-size: 14px; color: #64748b; font-weight: 500;
+  flex: 1; padding: 10px; border: none; background: transparent;
+  cursor: pointer; font-size: 14px; color: #64748d; font-weight: 500;
+  transition: color .15s ease, background .15s ease;
 }
-.tab-bar button.active { background: #fff; color: #4f46e5; }
+.tab-bar button.active { background: #fff; color: #533afd; box-shadow: inset 0 -2px 0 #533afd; }
 .tab-bar button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .login-form { text-align: left; }
 .field { margin-bottom: 16px; }
-.field label { display: block; font-size: 13px; color: #64748b; margin-bottom: 4px; }
+.field label { display: block; font-size: 13px; color: #273951; margin-bottom: 4px; font-weight: 500; }
 .field input {
-  width: 100%; padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 8px;
-  font-size: 15px; outline: none; box-sizing: border-box;
+  width: 100%; padding: 10px 12px; border: 1px solid #e5edf5; border-radius: 4px;
+  font-size: 15px; outline: none; box-sizing: border-box; color: #061b31;
+  transition: border-color .15s ease, box-shadow .15s ease;
 }
-.field input:focus { border-color: #4f46e5; }
+.field input:focus { border-color: #533afd; box-shadow: 0 0 0 3px rgba(83,58,253,0.22); }
+.field input::placeholder { color: #94a3b8; }
 
-.error-msg { color: #ef4444; font-size: 13px; margin-bottom: 12px; text-align: center; }
-.success-msg { color: #10b981; font-size: 13px; margin-bottom: 12px; text-align: center; }
+.error-msg { color: #e53e3e; font-size: 13px; margin-bottom: 12px; text-align: center; }
+.success-msg { color: #108c3d; font-size: 13px; margin-bottom: 12px; text-align: center; }
 
 .btn-full { width: 100%; }
-.btn-lg { padding: 12px 24px; font-size: 16px; border-radius: 8px; }
-.btn-primary { background: linear-gradient(135deg, #667eea, #764ba2); color: #fff; border: none; cursor: pointer; }
-.btn-primary:hover { opacity: 0.9; }
+.btn-lg { padding: 12px 24px; font-size: 16px; border-radius: 4px; }
+.btn-primary { background: #533afd; color: #fff; border: none; cursor: pointer; transition: background .15s ease; }
+.btn-primary:hover { background: #4434d4; }
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

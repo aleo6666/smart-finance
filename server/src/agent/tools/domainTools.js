@@ -348,11 +348,15 @@ export function createDomainTools({
         ...analysisSummary(summary, previous, scope),
         categoryStats: exactCategoryStats
       }
+      // mysql2 行对象是 RowDataPacket、DATE 列是 Date 实例（原型均非 Object.prototype），
+      // datasetStore 的 JSON 校验会拒绝 → rows 与 summary 均做 JSON 往返净化
+      const cleanSummary = JSON.parse(JSON.stringify(enrichedSummary))
+      const cleanRows = Array.isArray(summary.records) ? JSON.parse(JSON.stringify(summary.records)) : []
       return await datasetStore.put({
         userId: runtime.userId,
         requestId: runtime.requestId,
-        rows: Array.isArray(summary.records) ? summary.records : [],
-        summary: enrichedSummary,
+        rows: cleanRows,
+        summary: cleanSummary,
         scope
       })
     } catch (error) {

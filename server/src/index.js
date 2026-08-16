@@ -42,6 +42,8 @@ import insightsRouter from './routes/insights.js'
 import datasetsRouter from './routes/datasets.js'
 import adviceRouter from './routes/advice.js'
 import importRouter from './routes/import.js'
+import assetsRouter from './routes/assets.js'
+import speechRouter from './routes/speech.js'
 import { startScheduler } from './services/scheduler.js'
 import { initVectorCollection, VectorDimensionError, createVectorClient } from './services/vectorMemory.js'
 import defaultLmStudioClient from './services/lmStudioClient.js'
@@ -95,6 +97,8 @@ app.use('/api/insights', insightsRouter)
 app.use('/api/datasets', datasetsRouter)
 app.use('/api/advice', adviceRouter)
 app.use('/api/import', importRouter)
+app.use('/api/assets', assetsRouter)
+app.use('/api/speech', speechRouter)
 
 const uploadsDir = process.env.UPLOADS_DIR || 'uploads'
 app.use('/uploads', express.static(uploadsDir))

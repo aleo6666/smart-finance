@@ -338,12 +338,14 @@ function createFinalizeNode() {
     const message = fatalErrors.length > 0
       ? '请求无法安全执行，请调整后重试。'
       : aiText || '暂时无法生成回复，请稍后重试。'
+    const evidence = state?.response?.evidence ?? null
     return {
       response: {
         success: fatalErrors.length === 0,
         intent: state.intentType,
         message,
-        errorCodes: fatalErrors.map(item => item.code)
+        errorCodes: fatalErrors.map(item => item.code),
+        ...(evidence ? { evidence } : {})
       }
     }
   }
@@ -439,9 +441,9 @@ export function createAgentGraph({
   const toolNode = new ToolNode(safeExecutableTools(tools), {
     handleToolErrors: false
   })
-  // 深度分析节点：model 不支持结构化输出时置空，路由自动回退 call_model
+  // 深度分析节点：model 不支持 invoke 时置空，路由自动回退 call_model
   const synthesisNode =
-    typeof model.withStructuredOutput === 'function' &&
+    typeof model.invoke === 'function' &&
     datasetStore && typeof datasetStore.get === 'function'
       ? createSynthesisNode({ model, datasetStore })
       : null

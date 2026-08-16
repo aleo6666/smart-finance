@@ -408,6 +408,31 @@ export function getCreateTableStatements() {
       invite_code VARCHAR(32) UNIQUE,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       KEY idx_teams_owner (owner_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+    `CREATE TABLE IF NOT EXISTS assets (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      user_id BIGINT UNSIGNED NOT NULL,
+      name VARCHAR(128) NOT NULL,
+      type ENUM('deposit','fund','stock','liability') NOT NULL,
+      balance DECIMAL(14,4) NOT NULL DEFAULT 0,
+      currency VARCHAR(16) NOT NULL DEFAULT 'CNY',
+      note TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      KEY idx_assets_user (user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+    `CREATE TABLE IF NOT EXISTS daily_balance_snapshots (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      user_id BIGINT UNSIGNED NOT NULL,
+      snapshot_date DATE NOT NULL,
+      total_assets DECIMAL(14,4) NOT NULL DEFAULT 0,
+      total_liabilities DECIMAL(14,4) NOT NULL DEFAULT 0,
+      net_worth DECIMAL(14,4) NOT NULL DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_daily_balance_snapshot (user_id, snapshot_date)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
   ]
 }

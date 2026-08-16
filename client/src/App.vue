@@ -6,28 +6,34 @@
   <template v-else>
     <aside class="sidebar" :class="{ open: store.sidebarOpen }">
       <div class="sidebar-header">
-        <h1>💰 智能财务顾问</h1>
+        <h1><svg class="logo-mark" width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect width="24" height="24" rx="6" fill="#533afd"/><polyline points="6 15 10 11 13 13.5 18 8" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><polyline points="14.5 8 18 8 18 11.5" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> 智能财务顾问</h1>
         <p class="subtitle">AI驱动的个人财务顾问</p>
       </div>
 
       <nav class="sidebar-nav">
         <router-link to="/" exact-active-class="active">
-          <span class="icon">💬</span> 智能顾问
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></span> 智能顾问
         </router-link>
         <router-link to="/reports" active-class="active">
-          <span class="icon">📊</span> 消费分析
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg></span> 消费分析
+        </router-link>
+        <router-link to="/report" active-class="active">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></span> 月度报告
+        </router-link>
+        <router-link to="/assets" active-class="active">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg></span> 资产台账
         </router-link>
         <router-link to="/goals" active-class="active">
-          <span class="icon">🎯</span> 目标规划
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg></span> 目标规划
         </router-link>
         <router-link to="/exchange" active-class="active">
-          <span class="icon">🌍</span> 汇率看板
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span> 汇率看板
         </router-link>
         <router-link to="/import" active-class="active">
-          <span class="icon">📥</span> 账单导入
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span> 账单导入
         </router-link>
         <a class="feedback-nav" @click="showFeedback = true" href="javascript:void(0)">
-          <span class="icon">💡</span> 意见反馈
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span> 意见反馈
         </a>
       </nav>
 
@@ -57,23 +63,24 @@
         <LedgerManager v-if="store.isLoggedIn" />
 
         <span v-if="store.isLoggedIn" class="user-tag" :title="store.user?.nickname || ''">
-          👤 {{ store.user?.nickname || '用户' }}
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          {{ store.user?.nickname || '用户' }}
           <button class="btn-logout" @click="handleLogout()" title="退出登录">⏻</button>
         </span>
-        <button v-else class="btn btn-sm btn-outline" @click="$router.push('/login')">🔐 登录</button>
+        <button v-else class="btn btn-sm btn-outline" @click="$router.push('/login')">登录</button>
 
         <div class="reminder-bell" @click="store.toggleReminderPanel()">
-          <span style="font-size:20px">🔔</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
           <span v-if="store.reminderCount > 0" class="badge">{{ store.reminderCount > 99 ? '99+' : store.reminderCount }}</span>
         </div>
 
         <div class="reminder-panel" v-if="store.showReminderPanel" @click.stop>
           <div class="reminder-panel-header">
-            <h4>📬 消息提醒</h4>
+            <h4>消息提醒</h4>
             <button class="btn btn-outline btn-sm" @click="store.markAllRead()" v-if="store.reminders.length > 0">全部已读</button>
           </div>
           <div v-if="store.reminders.length === 0" style="padding:20px;text-align:center;color:var(--text-secondary);font-size:14px;">
-            暂无新提醒 ✨
+            暂无新提醒
           </div>
           <div v-for="r in store.reminders" :key="r.id" class="reminder-item" :class="[r.type, r.display?.accent]">
             <div class="reminder-item-main">
@@ -88,7 +95,11 @@
           </div>
         </div>
       </div>
-      <router-view />
+      <router-view v-slot="{ Component }">
+        <transition name="page-fade" mode="out-in">
+          <component :is="Component" />
+        </transition>
+      </router-view>
     </div>
 
     <!-- 侧边栏遮罩层（移动端） -->
@@ -116,7 +127,7 @@ const isLoginPage = computed(() => route.name === 'login')
 const showFeedback = ref(false)
 
 const pageTitle = computed(() => {
-  const titles = { chat: '智能顾问', reports: '消费分析', goals: '目标规划', exchange: '汇率看板', import: '账单导入' }
+  const titles = { chat: '智能顾问', reports: '消费分析', report: '月度报告', assets: '资产台账', goals: '目标规划', exchange: '汇率看板', import: '账单导入' }
   return titles[route.name] || '智能顾问'
 })
 
@@ -147,21 +158,49 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+/* 页面切换 fade 过渡 */
+.page-fade-enter-active,
+.page-fade-leave-active {
+  transition: opacity 0.18s ease;
+}
+.page-fade-enter-from,
+.page-fade-leave-to {
+  opacity: 0;
+}
+
+.logo-mark {
+  display: block;
+  flex-shrink: 0;
+}
+
+.user-tag svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.reminder-bell svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+
 .feedback-nav {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 16px;
-  border-radius: 10px;
-  color: var(--text-secondary);
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  color: var(--text);
   text-decoration: none;
   font-size: 14px;
-  transition: all 0.2s;
+  font-weight: 500;
+  transition: background 0.18s ease, color 0.18s ease;
   cursor: pointer;
 }
 .feedback-nav:hover {
-  background: rgba(79,70,229,0.06);
-  color: var(--primary);
+  background: var(--bg-subtle);
+  color: var(--text-title);
 }
 
 .reminder-item {
@@ -182,8 +221,9 @@ onMounted(async () => {
 .reminder-level {
   flex-shrink: 0;
   padding: 1px 6px;
-  border-radius: 999px;
-  background: var(--bg);
+  border-radius: 4px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
   color: var(--text-secondary);
   font-size: 10px;
 }
@@ -194,8 +234,12 @@ onMounted(async () => {
   font-size: 12px;
   cursor: pointer;
   padding: 2px 4px;
+  border-radius: 4px;
+  transition: background 0.18s ease;
 }
-.reminder-read-btn:hover { text-decoration: underline; }
+.reminder-read-btn:hover {
+  background: var(--primary-soft);
+}
 
 /* ========== 移动端顶部栏优化 ========== */
 @media (max-width: 768px) {
@@ -203,19 +247,21 @@ onMounted(async () => {
     padding: 10px 14px;
     height: 56px;
     gap: 8px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    box-shadow: 0 2px 12px rgba(102, 126, 234, 0.3);
+    background: rgba(255, 255, 255, 0.9);
+    backdrop-filter: saturate(180%) blur(12px);
+    -webkit-backdrop-filter: saturate(180%) blur(12px);
+    color: var(--text);
+    border-bottom: 1px solid var(--border);
   }
 
   .menu-btn {
-    background: rgba(255, 255, 255, 0.2);
-    color: white;
-    border: none;
+    background: var(--bg-subtle);
+    color: var(--text);
+    border: 1px solid var(--border);
     width: 36px;
     height: 36px;
-    border-radius: 10px;
-    font-size: 18px;
+    border-radius: var(--radius-sm);
+    font-size: 16px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -223,23 +269,23 @@ onMounted(async () => {
     transition: all 0.2s;
   }
   .menu-btn:active {
-    background: rgba(255, 255, 255, 0.3);
-    transform: scale(0.95);
+    background: var(--primary-soft);
+    transform: scale(0.96);
   }
 
   .page-title {
-    font-size: 17px;
+    font-size: 16px;
     font-weight: 600;
-    color: white;
-    letter-spacing: 0.5px;
+    color: var(--text-title);
+    letter-spacing: 0.01em;
   }
 
   .ledger-select {
-    background: rgba(255, 255, 255, 0.2);
-    color: white;
-    border: 1px solid rgba(255, 255, 255, 0.3);
+    background: var(--bg-card);
+    color: var(--text-title);
+    border: 1px solid var(--border);
     padding: 6px 10px;
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     font-size: 12px;
     max-width: 100px;
     overflow: hidden;
@@ -247,20 +293,20 @@ onMounted(async () => {
     white-space: nowrap;
   }
   .ledger-select option {
-    color: #333;
-    background: white;
+    color: var(--text-title);
+    background: #fff;
   }
 
   .user-tag {
-    background: rgba(255, 255, 255, 0.2);
-    color: white;
+    background: var(--bg-subtle);
+    color: var(--text);
     padding: 4px 8px;
-    border-radius: 20px;
+    border-radius: var(--radius-sm);
     font-size: 12px;
     gap: 4px;
   }
   .user-tag .btn-logout {
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--text-secondary);
     font-size: 14px;
   }
 
@@ -268,23 +314,26 @@ onMounted(async () => {
     position: relative;
     width: 36px;
     height: 36px;
+    padding: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(255, 255, 255, 0.2);
-    border-radius: 10px;
+    background: var(--bg-subtle);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
     cursor: pointer;
     transition: all 0.2s;
+    color: var(--text);
   }
   .reminder-bell:active {
-    background: rgba(255, 255, 255, 0.3);
-    transform: scale(0.95);
+    background: var(--primary-soft);
+    transform: scale(0.96);
   }
   .reminder-bell .badge {
     position: absolute;
-    top: 2px;
-    right: 2px;
-    background: #ff4757;
+    top: -5px;
+    right: -5px;
+    background: var(--danger);
     color: white;
     font-size: 10px;
     min-width: 16px;
@@ -306,7 +355,7 @@ onMounted(async () => {
   }
 
   .page-title {
-    font-size: 16px;
+    font-size: 15px;
   }
 
   .ledger-select {

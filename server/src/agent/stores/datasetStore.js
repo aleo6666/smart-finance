@@ -77,7 +77,8 @@ function validateJson(value, fieldName) {
   try {
     visitJson(value, new Set())
     serialized = JSON.stringify(value)
-  } catch {
+  } catch (error) {
+    console.error('[DatasetStore] validateJson failed:', error?.message?.slice(0, 200), 'field=', fieldName)
     throw new DatasetValidationError(`${fieldName} must be JSON-safe`)
   }
   if (serialized === undefined) {
@@ -154,7 +155,8 @@ export function createDatasetStore({
           requestId: trustedRequestId,
           datasetRef
         }), payload, ttlSeconds)
-      } catch {
+      } catch (error) {
+        console.error('[DatasetStore] cache.set failed:', error?.message?.slice(0, 150), 'key=', datasetRef)
         throw new DatasetStoreUnavailableError()
       }
       return {

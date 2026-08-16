@@ -49,6 +49,57 @@ function isIncome(text) {
   return INCOME_WORDS.some(word => text.includes(word))
 }
 
+// ---- 多笔拆分（纯规则，LLM 不参与拆单） ----
+
+const MULTI_SEPARATOR_RE = /(还有|然后|以及|和|跟|与|再|、|，|。)/g
+
+// 用分隔词拆分"物品+金额"子句；分隔词前后都出现数字才算真正分隔，
+// 避免"和牛套餐88"这类"和"作为词首被误拆。
+function splitMultiClauses(text) {
+  const matches = []
+  const re = new RegExp(MULTI_SEPARATOR_RE.source, 'g')
+  let m
+  while ((m = re.exec(text)) !== null) {
+    matches.push({ index: m.index, length: m[0].length })
+  }
+  if (!matches.length) return [text]
+
+  const clauses = []
+  let start = 0
+  for (const { index, length } of matches) {
+    const before = text.slice(start, index)
+    const after = text.slice(index + length)
+    if (/\d/.test(before) && /\d/.test(after)) {
+      clauses.push(before)
+      start = index + length
+    }
+  }
+  clauses.push(text.slice(start))
+  return clauses
+}
+
+// 按单笔规则解析子句；金额和物品都有的才算一笔。
+function parseSingleRecord(text, date) {
+  const amount = extractAmount(text)
+  if (amount == null) return null
+  const description = cleanDescription(text)
+  if (!description) return null
+  const type = isIncome(text) ? 'income' : 'expense'
+  const category = type === 'income' ? '收入' : inferCategory(text)
+  return { type, amount, category, description, date: date || extractDate(text) }
+}
+
+// 拆分出 ≥2 个有效子句时返回多笔结果；否则返回 null，交给单笔逻辑。
+function buildMultiRecordResult(text) {
+  const clauses = splitMultiClauses(text)
+  if (clauses.length < 2) return null
+  const date = extractDate(text)
+  const records = clauses.map(clause => parseSingleRecord(clause, date)).filter(Boolean)
+  if (records.length < 2) return null
+  const message = `已记录 ${records.length} 笔：${records.map(record => `${record.description} ¥${record.amount.toFixed(2)}`).join('、')}`
+  return { intent: 'record', message, data: { records } }
+}
+
 async function classifyIncomeViaLLM(text, amount, lmStudioClient) {
   try {
     const reply = await Promise.race([
@@ -68,6 +119,11 @@ async function classifyIncomeViaLLM(text, amount, lmStudioClient) {
 
 async function localParse(message, { lmStudioClient } = {}) {
   const text = String(message || '')
+
+  // 多笔拆分：纯规则，不依赖 LLM
+  const multi = buildMultiRecordResult(text)
+  if (multi) return multi
+
   const amount = extractAmount(text)
 
   if (amount) {
@@ -239,6 +295,10 @@ export async function processMessage(_identity, userMessage, {
   if (!message.trim()) {
     return { intent: 'chat', message: '你可以告诉我一笔消费，比如"今天午饭花了25元"。', data: null }
   }
+
+  // 多笔拆分：规则解析优先，先于 LLM（确定性拆单）
+  const multi = buildMultiRecordResult(message)
+  if (multi) return multi
 
   // 1. 尝试 LLM 意图识别（15 秒超时，避免阻塞用户）
   try {

@@ -65,24 +65,35 @@ export async function recordFromPlannerTask({
   billVectorWriteEnabled = false
 }) {
   const started = Date.now()
+  const payload = task.payload || {}
+  const recordInputs = Array.isArray(payload.records) && payload.records.length > 0
+    ? payload.records
+    : [payload.record]
 
   try {
-    const recordInput = normalizeRecord(task.payload)
-    const saved = await repository.insertRecord(recordInput)
-
+    const savedList = []
     let vectorIndexed = true
-    if (billVectorWriteEnabled) {
-      try {
-        await vectorMemory.embedRecord(saved)
-      } catch (error) {
-        console.warn(`[Recorder] vector embed skipped for record id=${saved.id}: ${error.message}`)
-        vectorIndexed = false
+    let monitorResult = null
+
+    for (const record of recordInputs) {
+      const recordInput = normalizeRecord({ ...payload, record })
+      const saved = await repository.insertRecord(recordInput)
+      savedList.push(saved)
+
+      if (billVectorWriteEnabled) {
+        try {
+          await vectorMemory.embedRecord(saved)
+        } catch (error) {
+          console.warn(`[Recorder] vector embed skipped for record id=${saved.id}: ${error.message}`)
+          vectorIndexed = false
+        }
       }
+
+      monitorResult = await monitorAgent.checkBudgetAfterRecord({ record: saved })
     }
 
-    const monitorResult = await monitorAgent.checkBudgetAfterRecord({ record: saved })
     await observeService.recordAgentEvent({
-      userId: saved.user_id,
+      userId: savedList[0]?.user_id ?? payload.userId ?? null,
       callType: 'record',
       latencyMs: Date.now() - started,
       status: 'succeeded',
@@ -90,8 +101,10 @@ export async function recordFromPlannerTask({
     })
 
     return {
-      recordIds: [saved.id],
-      summary: `recorded ${saved.amount}`,
+      recordIds: savedList.map(saved => saved.id),
+      summary: savedList.length === 1
+        ? `recorded ${savedList[0].amount}`
+        : `recorded ${savedList.length} records`,
       monitor: monitorResult,
       vectorIndexed
     }

@@ -48,6 +48,13 @@
         <h3>🍩 支出分类</h3>
         <div v-if="hasCategories" ref="pieRef" style="width:100%;height:280px;"></div>
         <div v-if="!hasCategories" class="empty-state" style="padding:30px;"><p>暂无支出记录</p></div>
+        <!-- 证据摘要（分析数据可选携带 evidence，仅展示结论 + 引用数，不展开） -->
+        <div v-if="evidencePoints.length" class="evidence-summary">
+          <div v-for="(p, i) in evidencePoints" :key="i" class="evidence-summary-item">
+            <span class="es-text">{{ p.text }}</span>
+            <span class="es-count">引用 {{ p.count }} 条</span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -178,6 +185,19 @@ const periodLabel = computed(() => {
 })
 const hasCategories = computed(() => report.value?.categories?.length > 0)
 const hasTrends = computed(() => report.value?.trends?.length > 0)
+
+// 证据摘要：报告数据可选携带 evidence；字段缺失或结构异常时不渲染
+const evidencePoints = computed(() => {
+  const ev = report.value?.evidence
+  if (!ev || !Array.isArray(ev.points)) return []
+  return ev.points
+    .filter(p => p && typeof p.text === 'string' && p.text.trim())
+    .map(p => ({
+      text: p.text,
+      count: Array.isArray(p.records) ? p.records.length
+        : (Array.isArray(p.recordIds) ? p.recordIds.length : 0)
+    }))
+})
 const allCats = ref(['餐饮', '交通', '购物', '娱乐', '住房', '医疗', '教育', '通讯', '礼物', '其他'])
 
 function fmt(n) { return n != null ? n.toFixed(0) : '0' }
@@ -345,4 +365,9 @@ onUnmounted(() => {
 /* 编辑按钮 */
 .btn-edit{background:none;border:none;cursor:pointer;font-size:15px;opacity:0.4;padding:4px 8px;margin-left:4px;border-radius:4px;transition:all .2s}
 .btn-edit:hover{opacity:1;background:var(--bg);color:var(--primary)}
+/* 证据摘要（仅结论 + 引用数） */
+.evidence-summary{margin-top:12px;border-top:1px solid var(--border);padding-top:10px;display:flex;flex-direction:column;gap:8px}
+.evidence-summary-item{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:8px 10px;background:var(--bg-subtle);border:1px solid var(--border);border-radius:var(--radius-sm)}
+.es-text{flex:1;font-size:13px;line-height:1.55;color:var(--text-title)}
+.es-count{flex-shrink:0;font-size:11px;color:var(--primary);background:var(--primary-soft);border-radius:4px;padding:2px 6px;white-space:nowrap}
 </style>
