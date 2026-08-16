@@ -21,7 +21,8 @@ const upload = multer({
 
 // 讯飞语音听写 v2 鉴权：RFC1123 时间戳 + HMAC-SHA256 base64 签名，拼 authorization 头
 export function buildIatAuthorization({ appId, apiKey, apiSecret, date = new Date().toUTCString() }) {
-  const signatureOrigin = `host: ${IAT_HOST}\ndate: ${date}\nrequest-line: GET ${IAT_PATH} HTTP/1.1`
+  // ⚠️ 签名串第三行是 "GET /v2/iat HTTP/1.1"，绝不能加 "request-line: " 前缀（加了会 401 HMAC signature does not match）
+  const signatureOrigin = `host: ${IAT_HOST}\ndate: ${date}\nGET ${IAT_PATH} HTTP/1.1`
   const signature = createHmac('sha256', apiSecret).update(signatureOrigin).digest('base64')
   const authorizationOrigin = `api_key="${apiKey}", algorithm="hmac-sha256", headers="host date request-line", signature="${signature}"`
   return Buffer.from(authorizationOrigin, 'utf8').toString('base64')
