@@ -1,7 +1,16 @@
 import pytest
-from sqlalchemy import Float, Numeric
+from sqlalchemy import Enum, Float, Numeric
 
-from app.models import Budget, Goal, Ledger, Transaction, User
+from app.models import (
+    Asset,
+    Budget,
+    Goal,
+    Ledger,
+    Liability,
+    Transaction,
+    User,
+    UserProfile,
+)
 
 
 MODEL_COLUMNS = [
@@ -42,6 +51,7 @@ MODEL_COLUMNS = [
             "amount",
             "currency",
             "note",
+            "income_source",
             "occurred_at",
             "created_at",
         },
@@ -74,6 +84,53 @@ MODEL_COLUMNS = [
             "created_at",
         },
     ),
+    (
+        Asset,
+        "assets",
+        {
+            "id",
+            "user_id",
+            "type",
+            "name",
+            "amount",
+            "currency",
+            "acquired_date",
+            "notes",
+            "created_at",
+        },
+    ),
+    (
+        Liability,
+        "liabilities",
+        {
+            "id",
+            "user_id",
+            "type",
+            "name",
+            "amount",
+            "interest_rate",
+            "monthly_payment",
+            "due_date",
+            "created_at",
+        },
+    ),
+    (
+        UserProfile,
+        "user_profiles",
+        {
+            "id",
+            "user_id",
+            "age",
+            "occupation",
+            "income_range",
+            "marital_status",
+            "children",
+            "dependents",
+            "risk_preference",
+            "financial_goals",
+            "updated_at",
+        },
+    ),
 ]
 
 
@@ -91,6 +148,9 @@ def test_money_columns_use_numeric_12_2_and_never_float() -> None:
         Budget.__table__.c.amount,
         Goal.__table__.c.target_amount,
         Goal.__table__.c.current_amount,
+        Asset.__table__.c.amount,
+        Liability.__table__.c.amount,
+        Liability.__table__.c.monthly_payment,
     )
 
     for column in money_columns:
@@ -99,8 +159,16 @@ def test_money_columns_use_numeric_12_2_and_never_float() -> None:
         assert column.type.precision == 12
         assert column.type.scale == 2
 
+    interest_rate = Liability.__table__.c.interest_rate
+    assert isinstance(interest_rate.type, Numeric)
+    assert not isinstance(interest_rate.type, Float)
+    assert interest_rate.type.precision == 5
+    assert interest_rate.type.scale == 4
 
-@pytest.mark.parametrize("model", [Ledger, Transaction, Budget, Goal])
+
+@pytest.mark.parametrize(
+    "model", [Ledger, Transaction, Budget, Goal, Asset, Liability, UserProfile]
+)
 def test_user_scoped_model_indexes_user_id(model: type) -> None:
     indexed_column_sets = {
         tuple(column.name for column in index.columns)
@@ -108,3 +176,33 @@ def test_user_scoped_model_indexes_user_id(model: type) -> None:
     }
 
     assert ("user_id",) in indexed_column_sets
+
+
+def test_user_profile_user_id_is_unique() -> None:
+    assert UserProfile.__table__.c.user_id.unique is True
+
+
+@pytest.mark.parametrize(
+    ("column", "values"),
+    [
+        (
+            Asset.__table__.c.type,
+            {"cash", "bank_deposit", "investment", "property", "vehicle", "other"},
+        ),
+        (
+            Liability.__table__.c.type,
+            {"credit_card", "loan", "mortgage", "other"},
+        ),
+        (
+            UserProfile.__table__.c.risk_preference,
+            {"保守", "稳健", "进取", "激进"},
+        ),
+        (
+            Transaction.__table__.c.income_source,
+            {"salary", "bonus", "part_time", "investment", "other"},
+        ),
+    ],
+)
+def test_financial_model_enums_have_expected_values(column, values: set[str]) -> None:
+    assert isinstance(column.type, Enum)
+    assert set(column.type.enums) == values

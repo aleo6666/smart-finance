@@ -2,5 +2,16 @@
 
 from app.models.base import Base
 from app.models.business import Budget, Goal, Ledger, Transaction, User
+from app.models.financial import Asset, Liability, UserProfile
 
-__all__ = ["Base", "Budget", "Goal", "Ledger", "Transaction", "User"]
+__all__ = [
+    "Asset",
+    "Base",
+    "Budget",
+    "Goal",
+    "Ledger",
+    "Liability",
+    "Transaction",
+    "User",
+    "UserProfile",
+]

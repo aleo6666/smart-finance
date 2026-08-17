@@ -4,6 +4,8 @@ import sqlite3
 import subprocess
 import sys
 
+import pytest
+
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
@@ -41,10 +43,21 @@ def test_alembic_upgrade_head_creates_business_schema_in_sqlite(
             "transactions",
             "budgets",
             "goals",
+            "assets",
+            "liabilities",
+            "user_profiles",
             "alembic_version",
         } <= table_names
 
-        for table_name in ("ledgers", "transactions", "budgets", "goals"):
+        for table_name in (
+            "ledgers",
+            "transactions",
+            "budgets",
+            "goals",
+            "assets",
+            "liabilities",
+            "user_profiles",
+        ):
             index_names = [
                 row[1]
                 for row in connection.execute(
@@ -59,6 +72,31 @@ def test_alembic_upgrade_head_creates_business_schema_in_sqlite(
                 )
             }
             assert "user_id" in indexed_columns
+
+        transaction_columns = {
+            row[1] for row in connection.execute('PRAGMA table_info("transactions")')
+        }
+        assert "income_source" in transaction_columns
+
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                """
+                INSERT INTO transactions (
+                    id, user_id, ledger_id, type, category, amount,
+                    income_source, occurred_at
+                ) VALUES (101, 1, 1, 'income', 'salary', 1, 'invalid', CURRENT_TIMESTAMP)
+                """
+            )
+
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                """
+                INSERT INTO transactions (
+                    id, user_id, ledger_id, type, category, amount,
+                    income_source, occurred_at
+                ) VALUES (102, 1, 1, 'expense', 'food', 1, 'salary', CURRENT_TIMESTAMP)
+                """
+            )
 
         revision = connection.execute(
             "SELECT version_num FROM alembic_version"

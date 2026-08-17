@@ -1,7 +1,17 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Date, DateTime, Enum, ForeignKey, Numeric, String, Text, func
+from sqlalchemy import (
+    CheckConstraint,
+    Date,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Numeric,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -42,6 +52,17 @@ class Ledger(Base):
 
 class Transaction(Base):
     __tablename__ = "transactions"
+    __table_args__ = (
+        CheckConstraint(
+            "income_source IS NULL OR income_source IN "
+            "('salary', 'bonus', 'part_time', 'investment', 'other')",
+            name="ck_transactions_income_source_values",
+        ),
+        CheckConstraint(
+            "type = 'income' OR income_source IS NULL",
+            name="ck_transactions_income_source_income_only",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(
@@ -65,6 +86,18 @@ class Transaction(Base):
         String(16), default="CNY", server_default="CNY"
     )
     note: Mapped[str | None] = mapped_column(Text())
+    income_source: Mapped[str | None] = mapped_column(
+        Enum(
+            "salary",
+            "bonus",
+            "part_time",
+            "investment",
+            "other",
+            name="income_source",
+            native_enum=False,
+            create_constraint=False,
+        )
+    )
     occurred_at: Mapped[datetime] = mapped_column(DateTime())
     created_at: Mapped[datetime] = mapped_column(
         DateTime(), server_default=func.now()
