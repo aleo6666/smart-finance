@@ -45,3 +45,10 @@ docs/facts-*
 docs/project_description.md
 docs/毕业设计*
 docs/第*章*
+
+backend-py/.venv/
+backend-py/.pytest_cache/
+backend-py/.env
+backend-py/*.db
+backend-py/.coverage
+backend-py/htmlcov/

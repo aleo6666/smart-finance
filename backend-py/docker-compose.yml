@@ -1,0 +1,82 @@
+name: smart-finance-py
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-smart_finance}
+      MYSQL_USER: ${MYSQL_USER:-finance}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me-db-password}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change-me-root-password}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_PASSWORD mysqladmin ping -h 127.0.0.1 -u$$MYSQL_USER --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  qdrant:
+    image: qdrant/qdrant:v1.11.3
+    restart: unless-stopped
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/6333'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    depends_on:
+      mysql:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-3000}:8000"
+    environment:
+      APP_NAME: ${APP_NAME:-Smart Finance API}
+      APP_ENV: ${APP_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      CORS_ORIGINS: '${CORS_ORIGINS:-["http://localhost:5173"]}'
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
+      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+      REDIS_URL: '${REDIS_URL:-}'
+      LLM_API_KEY: '${LLM_API_KEY:-}'
+      LLM_BASE_URL: '${LLM_BASE_URL:-}'
+      LLM_MODEL: ${LLM_MODEL:-zhipu/glm-4-flash}
+      EMBEDDING_API_KEY: '${EMBEDDING_API_KEY:-}'
+      EMBEDDING_BASE_URL: '${EMBEDDING_BASE_URL:-}'
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-zhipu/embedding-3}
+      RERANK_API_KEY: '${RERANK_API_KEY:-}'
+      RERANK_BASE_URL: '${RERANK_BASE_URL:-}'
+      RERANK_MODEL: ${RERANK_MODEL:-bge-reranker-v2-m3}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-10080}
+      RAG_TOP_K: ${RAG_TOP_K:-10}
+      RAG_RERANK_TOP_K: ${RAG_RERANK_TOP_K:-5}
+      RAG_MAX_CONTEXT_CHARS: ${RAG_MAX_CONTEXT_CHARS:-12000}
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2)
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  mysql_data:
+  qdrant_data:
