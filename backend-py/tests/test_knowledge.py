@@ -16,6 +16,7 @@ from app.core.config import Settings, get_settings
 from app.core.database import get_db
 from app.main import create_app
 from app.models import Base, KnowledgeDocument
+from app.services.knowledge import chunk_point_id
 
 
 def make_settings() -> Settings:
@@ -205,7 +206,10 @@ async def test_upsert_knowledge_chunks_has_stable_ids_and_public_payload() -> No
         )
 
     assert client.created[0]["collection_name"] == "knowledge_chunks_v1"
-    assert list(client.points) == [f"{document.id}:0", f"{document.id}:1"]
+    assert list(client.points) == [
+        chunk_point_id(document.id, 0),
+        chunk_point_id(document.id, 1),
+    ]
     assert len(client.points) == 2
     payloads = [point.payload for point in client.points.values()]
     assert [payload["chunk_index"] for payload in payloads] == [0, 1]
@@ -250,7 +254,7 @@ async def test_upsert_knowledge_chunks_adds_memory_dedup_payload() -> None:
             extra_payload={"dedup_key": "abc", "category": "rule"},
         )
 
-    point = client.points[f"{document.id}:0"]
+    point = client.points[chunk_point_id(document.id, 0)]
     assert point.payload["dedup_key"] == "abc"
     assert point.payload["category"] == "rule"
     await engine.dispose()
@@ -311,7 +315,7 @@ def test_txt_upload_route_persists_lists_and_indexes_document(knowledge_store) -
 
         assert api.get("/api/knowledge/documents?user_id=8").json() == []
 
-    point = client.points["1:0"]
+    point = client.points[chunk_point_id(1, 0)]
     assert point.payload["user_id"] == 7
     assert point.payload["document_id"] == 1
     assert point.payload["source_type"] == "txt"
@@ -368,7 +372,7 @@ def test_transcript_json_upload_is_indexed_as_audio_transcript(
         assert document["source_type"] == "audio_transcript"
         assert document["file_path"] is None
 
-    assert client.points["1:0"].payload["source_type"] == "audio_transcript"
+    assert client.points[chunk_point_id(1, 0)].payload["source_type"] == "audio_transcript"
 
 
 def test_ingest_text_memo_and_knowledge_return_document_ids(
@@ -407,11 +411,11 @@ def test_ingest_text_memo_and_knowledge_return_document_ids(
     assert knowledge.status_code == 200
     assert memo.json() == {"document_id": 1}
     assert knowledge.json() == {"document_id": 2}
-    assert client.points["1:0"].payload["content"] == memo_text
-    assert "1:1" not in client.points
-    assert client.points["1:0"].payload["mark"] == "memo"
-    assert client.points["2:0"].payload["mark"] == "knowledge"
-    assert "2:1" in client.points
+    assert client.points[chunk_point_id(1, 0)].payload["content"] == memo_text
+    assert chunk_point_id(1, 1) not in client.points
+    assert client.points[chunk_point_id(1, 0)].payload["mark"] == "memo"
+    assert client.points[chunk_point_id(2, 0)].payload["mark"] == "knowledge"
+    assert chunk_point_id(2, 1) in client.points
 
 
 def test_delete_route_removes_document_with_qdrant_document_filter(

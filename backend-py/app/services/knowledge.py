@@ -1,4 +1,5 @@
 import re
+import uuid
 from io import BytesIO
 from pathlib import Path
 
@@ -15,6 +16,17 @@ from app.models import KnowledgeDocument
 
 
 MAX_CHUNK_CHARS = 8000
+
+_NAMESPACE = uuid.NAMESPACE_URL
+
+
+def chunk_point_id(document_id: int, chunk_index: int) -> str:
+    """Deterministic Qdrant point id (UUID5) — idempotent, valid for Qdrant.
+
+    Qdrant rejects string ids like "3:0" (only uint or UUID accepted), so we
+    derive a stable UUID from (document_id, chunk_index) instead.
+    """
+    return str(uuid.uuid5(_NAMESPACE, f"knowledge:{document_id}:{chunk_index}"))
 
 
 def split_knowledge_text(
@@ -69,7 +81,7 @@ async def upsert_knowledge_chunks(
         }
         points.append(
             models.PointStruct(
-                id=f"{document.id}:{chunk_index}",
+                id=chunk_point_id(document.id, chunk_index),
                 vector=await embedder(content, settings),
                 payload=payload,
             )

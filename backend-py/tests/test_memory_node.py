@@ -8,6 +8,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from app.core.config import Settings
 from app.models import Base, KnowledgeDocument
+from app.services.knowledge import chunk_point_id
 
 
 def _extract_memory_candidates(messages):
@@ -312,7 +313,7 @@ async def test_memory_node_persists_chat_memory_document() -> None:
     assert document is not None
     assert document.user_id == document.space_id == 7
     assert document.source_type == "chat_memory"
-    point = qdrant.points[f"{document.id}:0"]
+    point = qdrant.points[chunk_point_id(document.id, 0)]
     assert point.payload["content"] == "我每月固定存 2000 元"
     assert point.payload["dedup_key"]
     await engine.dispose()

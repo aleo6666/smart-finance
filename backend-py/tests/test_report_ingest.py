@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.core.config import Settings
 from app.models import Base, KnowledgeDocument, Ledger, Transaction, User
-from app.services.knowledge import ingest_knowledge_document
+from app.services.knowledge import chunk_point_id, ingest_knowledge_document
 from app.services.report_generator import generate_monthly_report
 
 
@@ -133,4 +133,4 @@ async def test_monthly_report_persists_report_knowledge_document(report_store) -
     assert document is not None
     assert document.title == "月度报告 2026-03"
     assert document.space_id == 1
-    assert qdrant.points[f"{document.id}:0"].payload["source_type"] == "report"
+    assert qdrant.points[chunk_point_id(document.id, 0)].payload["source_type"] == "report"
