@@ -3,6 +3,7 @@
 from app.models.base import Base
 from app.models.business import Budget, Goal, Ledger, Transaction, User
 from app.models.financial import Asset, Liability, UserProfile
+from app.models.report import Report
 
 __all__ = [
     "Asset",
@@ -11,6 +12,7 @@ __all__ = [
     "Goal",
     "Ledger",
     "Liability",
+    "Report",
     "Transaction",
     "User",
     "UserProfile",

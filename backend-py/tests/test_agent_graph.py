@@ -174,3 +174,32 @@ async def test_combined_retrieval_context_respects_total_character_limit() -> No
     )
 
     assert len(result["retrieved_context"]) == 60
+
+
+@pytest.mark.asyncio
+async def test_injects_cfp_context_before_first_model_call() -> None:
+    observed_user_ids: list[int] = []
+
+    async def context_provider(user_id: int) -> dict:
+        observed_user_ids.append(user_id)
+        return {
+            "income_by_source": {"salary": "10000.00"},
+            "assumptions": ["基于以下假设：风险偏好信息缺省"],
+        }
+
+    model = ScriptedModel([AIMessage(content="done")])
+    graph = create_agent_graph(
+        model=model,
+        tools=[],
+        cfp_context_provider=context_provider,
+    )
+
+    await graph.ainvoke(
+        {"messages": [HumanMessage(content="规划")], "user_id": 7}
+    )
+
+    assert observed_user_ids == [7]
+    system_prompt = model.calls[0][0].content
+    assert "CFP 真实财务数据" in system_prompt
+    assert '"salary": "10000.00"' in system_prompt
+    assert "基于以下假设：风险偏好信息缺省" in system_prompt

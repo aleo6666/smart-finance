@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage, SystemMessage, ToolMessage
@@ -9,8 +10,10 @@ from langchain_core.tools import BaseTool
 from langgraph.graph import END, START, StateGraph
 
 from app.agents.prompts import build_agent_system_prompt
+from app.agents.nodes.cfp_node import build_cfp_context
 from app.agents.state import AgentState, ValidatedToolCall
 from app.agents.tools import (
+    create_financial_planning_tools,
     create_query_transactions_tool,
     create_search_knowledge_base_tool,
     create_search_similar_records_tool,
@@ -120,9 +123,23 @@ def create_agent_graph(
     tools: list[BaseTool],
     max_iterations: int = 8,
     max_context_chars: int = 12000,
+    cfp_context_provider: Callable[[int], Awaitable[dict]] | None = None,
 ):
     tools_by_name = {tool.name: tool for tool in tools}
     bound_model = model.bind_tools(tools)
+
+    async def inject_cfp_context(state: AgentState) -> dict[str, Any]:
+        if cfp_context_provider is None:
+            return {}
+        context = await cfp_context_provider(state["user_id"])
+        serialized = json.dumps(context, ensure_ascii=False, default=str)
+        existing = state.get("retrieved_context", "")
+        combined = "\n\n".join(
+            part
+            for part in [f"CFP 真实财务数据：\n{serialized}", existing]
+            if part
+        )
+        return {"retrieved_context": combined[:max_context_chars]}
 
     async def call_model(state: AgentState) -> dict[str, Any]:
         system_message = SystemMessage(
@@ -221,11 +238,13 @@ def create_agent_graph(
         return "call_model" if state.get("continue_loop", False) else "end"
 
     workflow = StateGraph(AgentState)
+    workflow.add_node("inject_cfp_context", inject_cfp_context)
     workflow.add_node("call_model", call_model)
     workflow.add_node("validate_tool", validate_tool)
     workflow.add_node("execute_tool", execute_tool)
     workflow.add_node("loop", loop)
-    workflow.add_edge(START, "call_model")
+    workflow.add_edge(START, "inject_cfp_context")
+    workflow.add_edge("inject_cfp_context", "call_model")
     workflow.add_edge("call_model", "validate_tool")
     workflow.add_edge("validate_tool", "execute_tool")
     workflow.add_edge("execute_tool", "loop")
@@ -257,10 +276,17 @@ def create_default_agent(
         create_query_transactions_tool(sessions),
         create_search_similar_records_tool(client, app_settings),
         create_search_knowledge_base_tool(client, app_settings),
+        *create_financial_planning_tools(sessions),
     ]
+
+    async def provide_cfp_context(user_id: int) -> dict:
+        async with sessions() as session:
+            return await build_cfp_context(session, user_id)
+
     return create_agent_graph(
         model=model or get_chat_model(app_settings),
         tools=tools,
         max_iterations=app_settings.agent_max_iterations,
         max_context_chars=app_settings.rag_max_context_chars,
+        cfp_context_provider=provide_cfp_context,
     )

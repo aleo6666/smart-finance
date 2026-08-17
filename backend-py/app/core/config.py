@@ -1,3 +1,4 @@
+from decimal import Decimal
 from functools import lru_cache
 from typing import Literal, Self
 
@@ -43,6 +44,9 @@ class Settings(BaseSettings):
     rag_rerank_top_k: int = Field(default=5, ge=1, le=100)
     rag_max_context_chars: int = Field(default=12000, ge=1000)
     agent_max_iterations: int = Field(default=8, ge=1, le=32)
+    anomaly_standard_deviations: Decimal = Field(
+        default=Decimal("2"), gt=Decimal("0")
+    )
 
     @model_validator(mode="after")
     def validate_rerank_count(self) -> Self:

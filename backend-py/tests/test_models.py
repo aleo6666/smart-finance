@@ -7,6 +7,7 @@ from app.models import (
     Goal,
     Ledger,
     Liability,
+    Report,
     Transaction,
     User,
     UserProfile,
@@ -131,6 +132,11 @@ MODEL_COLUMNS = [
             "updated_at",
         },
     ),
+    (
+        Report,
+        "reports",
+        {"id", "user_id", "report_type", "period", "content", "created_at"},
+    ),
 ]
 
 
@@ -167,7 +173,7 @@ def test_money_columns_use_numeric_12_2_and_never_float() -> None:
 
 
 @pytest.mark.parametrize(
-    "model", [Ledger, Transaction, Budget, Goal, Asset, Liability, UserProfile]
+    "model", [Ledger, Transaction, Budget, Goal, Asset, Liability, UserProfile, Report]
 )
 def test_user_scoped_model_indexes_user_id(model: type) -> None:
     indexed_column_sets = {
