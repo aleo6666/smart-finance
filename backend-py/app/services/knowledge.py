@@ -52,12 +52,14 @@ async def upsert_knowledge_chunks(
     chunks: list[str],
     *,
     embedder: Embedder = embed_text,
+    extra_payload: dict[str, object] | None = None,
 ) -> None:
     await ensure_collection(client, COLLECTION_NAME, settings.embedding_dimension)
     points = []
     payload_user_id = 0 if document.space_id == 0 else document.user_id
     for chunk_index, content in enumerate(chunks):
         payload = {
+            **(extra_payload or {}),
             "user_id": payload_user_id,
             "document_id": document.id,
             "chunk_index": chunk_index,
@@ -109,8 +111,12 @@ async def ingest_knowledge_document(
     file_path: str | None,
     text: str,
     embedder: Embedder = embed_text,
+    extra_payload: dict[str, object] | None = None,
+    chunk_text: bool = True,
 ) -> KnowledgeDocument:
-    chunks = split_knowledge_text(text)
+    stripped_text = text.strip()
+    chunks = split_knowledge_text(stripped_text) if chunk_text else [stripped_text]
+    chunks = [chunk for chunk in chunks if chunk]
     if not chunks:
         raise ValueError("knowledge document has no text content")
     document = KnowledgeDocument(
@@ -130,6 +136,7 @@ async def ingest_knowledge_document(
             document,
             chunks,
             embedder=embedder,
+            extra_payload=extra_payload,
         )
         await db.commit()
     except Exception:

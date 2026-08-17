@@ -221,6 +221,41 @@ async def test_upsert_knowledge_chunks_has_stable_ids_and_public_payload() -> No
     await engine.dispose()
 
 
+@pytest.mark.asyncio
+async def test_upsert_knowledge_chunks_adds_memory_dedup_payload() -> None:
+    from app.services.knowledge import upsert_knowledge_chunks
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    client = FakeQdrantClient()
+    async with AsyncSession(engine, expire_on_commit=False) as session:
+        document = KnowledgeDocument(
+            user_id=7,
+            space_id=7,
+            title="对话记忆",
+            source_type="chat_memory",
+            file_path=None,
+            chunk_count=1,
+        )
+        session.add(document)
+        await session.flush()
+
+        await upsert_knowledge_chunks(
+            client,
+            make_settings(),
+            document,
+            ["我每月存 2000"],
+            embedder=fake_embedder,
+            extra_payload={"dedup_key": "abc", "category": "rule"},
+        )
+
+    point = client.points[f"{document.id}:0"]
+    assert point.payload["dedup_key"] == "abc"
+    assert point.payload["category"] == "rule"
+    await engine.dispose()
+
+
 def test_txt_upload_route_persists_lists_and_indexes_document(knowledge_store) -> None:
     from app.agents.tools.search_knowledge_base import (
         create_search_knowledge_base_tool,
@@ -334,6 +369,49 @@ def test_transcript_json_upload_is_indexed_as_audio_transcript(
         assert document["file_path"] is None
 
     assert client.points["1:0"].payload["source_type"] == "audio_transcript"
+
+
+def test_ingest_text_memo_and_knowledge_return_document_ids(
+    knowledge_store,
+) -> None:
+    from app.api.knowledge import get_knowledge_embedder, get_qdrant_client
+
+    client = FakeQdrantClient()
+    application = create_app(chat_agent=object())
+
+    async def override_get_db():
+        async with knowledge_store() as session:
+            yield session
+
+    async def override_qdrant():
+        yield client
+
+    application.dependency_overrides[get_db] = override_get_db
+    application.dependency_overrides[get_settings] = make_settings
+    application.dependency_overrides[get_qdrant_client] = override_qdrant
+    application.dependency_overrides[get_knowledge_embedder] = lambda: fake_embedder
+
+    memo_text = "备忘原文" * 3000
+    knowledge_text = "知识原文" * 3000
+    with TestClient(application) as api:
+        memo = api.post(
+            "/api/knowledge/ingest-text",
+            json={"user_id": 7, "text": memo_text, "mark": "memo"},
+        )
+        knowledge = api.post(
+            "/api/knowledge/ingest-text",
+            json={"user_id": 7, "text": knowledge_text, "mark": "knowledge"},
+        )
+
+    assert memo.status_code == 200
+    assert knowledge.status_code == 200
+    assert memo.json() == {"document_id": 1}
+    assert knowledge.json() == {"document_id": 2}
+    assert client.points["1:0"].payload["content"] == memo_text
+    assert "1:1" not in client.points
+    assert client.points["1:0"].payload["mark"] == "memo"
+    assert client.points["2:0"].payload["mark"] == "knowledge"
+    assert "2:1" in client.points
 
 
 def test_delete_route_removes_document_with_qdrant_document_filter(

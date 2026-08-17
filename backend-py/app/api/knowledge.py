@@ -1,9 +1,10 @@
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from qdrant_client import AsyncQdrantClient
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.datastructures import UploadFile
 
@@ -23,6 +24,14 @@ from app.services.knowledge_seed import seed_public_knowledge
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
 
+class IngestTextRequest(BaseModel):
+    user_id: int = Field(gt=0)
+    space_id: int | None = Field(default=None, gt=0)
+    title: str = Field(default="语音转写", min_length=1, max_length=255)
+    text: str = Field(min_length=1)
+    mark: Literal["memo", "knowledge"]
+
+
 async def get_qdrant_client() -> AsyncIterator[AsyncQdrantClient]:
     client = AsyncQdrantClient(url=get_settings().qdrant_url)
     try:
@@ -33,6 +42,34 @@ async def get_qdrant_client() -> AsyncIterator[AsyncQdrantClient]:
 
 def get_knowledge_embedder() -> Embedder:
     return embed_text
+
+
+@router.post("/ingest-text")
+async def ingest_text(
+    payload: IngestTextRequest,
+    db: AsyncSession = Depends(get_db),
+    qdrant: AsyncQdrantClient = Depends(get_qdrant_client),
+    settings: Settings = Depends(get_settings),
+    embedder: Embedder = Depends(get_knowledge_embedder),
+) -> dict[str, int]:
+    try:
+        document = await ingest_knowledge_document(
+            db,
+            qdrant,
+            settings,
+            user_id=payload.user_id,
+            space_id=payload.space_id or payload.user_id,
+            title=payload.title.strip(),
+            source_type="audio_transcript",
+            file_path=None,
+            text=payload.text,
+            embedder=embedder,
+            extra_payload={"mark": payload.mark},
+            chunk_text=payload.mark == "knowledge",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"document_id": document.id}
 
 
 def _integer_field(

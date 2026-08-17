@@ -57,3 +57,16 @@ def test_rerank_count_cannot_exceed_recall_count() -> None:
             rag_top_k=4,
             rag_rerank_top_k=5,
         )
+
+
+def test_memory_auto_ingest_defaults_true_and_reads_environment(monkeypatch) -> None:
+    base = {
+        "_env_file": None,
+        "database_url": "sqlite+aiosqlite:///:memory:",
+        "qdrant_url": "http://qdrant:6333",
+        "jwt_secret": "test-secret-that-is-long-enough",
+    }
+
+    assert Settings(**base).memory_auto_ingest is True
+    monkeypatch.setenv("MEMORY_AUTO_INGEST", "false")
+    assert Settings(**base).memory_auto_ingest is False

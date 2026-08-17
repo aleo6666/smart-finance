@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     rag_rerank_top_k: int = Field(default=5, ge=1, le=100)
     rag_max_context_chars: int = Field(default=12000, ge=1000)
     agent_max_iterations: int = Field(default=8, ge=1, le=32)
+    memory_auto_ingest: bool = True
     anomaly_standard_deviations: Decimal = Field(
         default=Decimal("2"), gt=Decimal("0")
     )

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -11,6 +12,7 @@ from langgraph.graph import END, START, StateGraph
 
 from app.agents.prompts import build_agent_system_prompt
 from app.agents.nodes.cfp_node import build_cfp_context
+from app.agents.nodes.memory_node import create_memory_node
 from app.agents.state import AgentState, ValidatedToolCall
 from app.agents.tools import (
     create_financial_planning_tools,
@@ -23,6 +25,7 @@ from app.core.llm import get_chat_model, parse_json_object
 
 
 MAX_ITERATIONS_FALLBACK = "需要更精确的信息，请补充条件"
+logger = logging.getLogger(__name__)
 
 
 def _latest_ai_message(messages: list[BaseMessage]) -> AIMessage | None:
@@ -124,6 +127,7 @@ def create_agent_graph(
     max_iterations: int = 8,
     max_context_chars: int = 12000,
     cfp_context_provider: Callable[[int], Awaitable[dict]] | None = None,
+    memory_processor: Callable[[AgentState], Awaitable[dict[str, Any]]] | None = None,
 ):
     tools_by_name = {tool.name: tool for tool in tools}
     bound_model = model.bind_tools(tools)
@@ -237,12 +241,22 @@ def create_agent_graph(
     def route_loop(state: AgentState) -> str:
         return "call_model" if state.get("continue_loop", False) else "end"
 
+    async def persist_memory(state: AgentState) -> dict[str, Any]:
+        if memory_processor is None:
+            return {}
+        try:
+            return await memory_processor(state)
+        except Exception:
+            logger.warning("Agent memory step failed", exc_info=True)
+            return {}
+
     workflow = StateGraph(AgentState)
     workflow.add_node("inject_cfp_context", inject_cfp_context)
     workflow.add_node("call_model", call_model)
     workflow.add_node("validate_tool", validate_tool)
     workflow.add_node("execute_tool", execute_tool)
     workflow.add_node("loop", loop)
+    workflow.add_node("persist_memory", persist_memory)
     workflow.add_edge(START, "inject_cfp_context")
     workflow.add_edge("inject_cfp_context", "call_model")
     workflow.add_edge("call_model", "validate_tool")
@@ -251,8 +265,9 @@ def create_agent_graph(
     workflow.add_conditional_edges(
         "loop",
         route_loop,
-        {"call_model": "call_model", "end": END},
+        {"call_model": "call_model", "end": "persist_memory"},
     )
+    workflow.add_edge("persist_memory", END)
     return workflow.compile().with_config(
         {"recursion_limit": max_iterations * 4 + 4}
     )
@@ -283,10 +298,18 @@ def create_default_agent(
         async with sessions() as session:
             return await build_cfp_context(session, user_id)
 
+    agent_model = model or get_chat_model(app_settings)
+    memory_processor = create_memory_node(
+        model=agent_model,
+        session_factory=sessions,
+        qdrant=client,
+        settings=app_settings,
+    )
     return create_agent_graph(
-        model=model or get_chat_model(app_settings),
+        model=agent_model,
         tools=tools,
         max_iterations=app_settings.agent_max_iterations,
         max_context_chars=app_settings.rag_max_context_chars,
         cfp_context_provider=provide_cfp_context,
+        memory_processor=memory_processor,
     )

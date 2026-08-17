@@ -1,11 +1,16 @@
+import logging
+from collections.abc import Awaitable, Callable
 from datetime import date, datetime, time
 from decimal import Decimal, ROUND_HALF_UP
 
+from qdrant_client import AsyncQdrantClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.models import Report, Transaction
 from app.services.deep_analysis import DISCLAIMER
+from app.services.knowledge import ingest_knowledge_document
 from app.services.metrics import compute_savings_rate
 
 
@@ -13,6 +18,7 @@ ZERO = Decimal("0")
 MONEY = Decimal("0.01")
 RATE = Decimal("0.0001")
 TEXT_PERCENT = Decimal("0.01")
+logger = logging.getLogger(__name__)
 
 
 def _money(value: Decimal) -> Decimal:
@@ -141,8 +147,44 @@ def _report_dict(report: Report) -> dict:
     }
 
 
+def _report_analysis_text(content: dict) -> str:
+    return "\n\n".join([*content["narratives"], *content["action_advice"]])
+
+
+async def _ingest_report_knowledge(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    space_id: int,
+    title: str,
+    source_type: str,
+    text: str,
+) -> None:
+    settings = get_settings()
+    client = AsyncQdrantClient(url=settings.qdrant_url)
+    try:
+        await ingest_knowledge_document(
+            db,
+            client,
+            settings,
+            user_id=user_id,
+            space_id=space_id,
+            title=title,
+            source_type=source_type,
+            file_path=None,
+            text=text,
+        )
+    finally:
+        await client.close()
+
+
 async def generate_monthly_report(
-    db: AsyncSession, user_id: int, year: int, month: int
+    db: AsyncSession,
+    user_id: int,
+    year: int,
+    month: int,
+    *,
+    report_ingester: Callable[..., Awaitable[None]] | None = None,
 ) -> dict:
     """Generate and persist a deterministic monthly report for one user."""
     try:
@@ -211,7 +253,20 @@ async def generate_monthly_report(
     db.add(report)
     await db.commit()
     await db.refresh(report)
-    return _report_dict(report)
+    result = _report_dict(report)
+    try:
+        ingester = report_ingester or _ingest_report_knowledge
+        await ingester(
+            db,
+            user_id=user_id,
+            space_id=user_id,
+            title=f"月度报告 {report.period}",
+            source_type="report",
+            text=_report_analysis_text(content),
+        )
+    except Exception:
+        logger.warning("Monthly report knowledge ingest failed", exc_info=True)
+    return result
 
 
 async def list_reports(db: AsyncSession, user_id: int) -> list[dict]:
