@@ -56,4 +56,13 @@ def test_environment_example_lists_required_phase_one_settings() -> None:
         "RAG_TOP_K",
         "RAG_RERANK_TOP_K",
         "RAG_MAX_CONTEXT_CHARS",
+        "EMBEDDING_DIMENSION",
+        "AGENT_MAX_ITERATIONS",
     } <= keys
+
+
+def test_compose_forwards_agent_vector_configuration() -> None:
+    compose = read_file("docker-compose.yml")
+
+    assert "EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-1024}" in compose
+    assert "AGENT_MAX_ITERATIONS: ${AGENT_MAX_ITERATIONS:-8}" in compose

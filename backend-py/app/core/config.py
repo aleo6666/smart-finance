@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     embedding_api_key: SecretStr | None = None
     embedding_base_url: str | None = None
     embedding_model: str = "zhipu/embedding-3"
+    embedding_dimension: int = Field(default=1024, ge=1)
     rerank_api_key: SecretStr | None = None
     rerank_base_url: str | None = None
     rerank_model: str = "bge-reranker-v2-m3"
@@ -41,6 +42,7 @@ class Settings(BaseSettings):
     rag_top_k: int = Field(default=10, ge=1, le=100)
     rag_rerank_top_k: int = Field(default=5, ge=1, le=100)
     rag_max_context_chars: int = Field(default=12000, ge=1000)
+    agent_max_iterations: int = Field(default=8, ge=1, le=32)
 
     @model_validator(mode="after")
     def validate_rerank_count(self) -> Self:
