@@ -55,7 +55,7 @@ pydantic-settings>=2.7.0,<3.0.0
 python-jose[cryptography]>=3.3.0,<4.0.0
 passlib[bcrypt]>=1.7.4,<2.0.0
 python-multipart>=0.0.20,<1.0.0
-qdrant-client>=1.11.3,<2.0.0
+qdrant-client==1.11.3
 langgraph>=0.2.60,<2.0.0
 langchain>=0.3.13,<2.0.0
 litellm>=1.55.0,<2.0.0
@@ -1149,6 +1149,12 @@ def test_python_dependencies_use_asyncmy_not_aiomysql() -> None:
 
     assert "asyncmy" in requirements
     assert "aiomysql" not in requirements
+
+
+def test_python_qdrant_client_matches_pinned_server() -> None:
+    requirements = read_file("requirements.txt").splitlines()
+
+    assert "qdrant-client==1.11.3" in requirements
 
 
 def test_dockerfile_runs_as_non_root_python_311_user() -> None:

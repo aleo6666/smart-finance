@@ -24,6 +24,12 @@ def test_python_dependencies_use_asyncmy_not_aiomysql() -> None:
     assert "aiomysql" not in requirements
 
 
+def test_python_qdrant_client_matches_pinned_server() -> None:
+    requirements = read_file("requirements.txt").splitlines()
+
+    assert "qdrant-client==1.11.3" in requirements
+
+
 def test_dockerfile_runs_as_non_root_python_311_user() -> None:
     dockerfile = read_file("Dockerfile")
 
