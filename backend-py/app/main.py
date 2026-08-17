@@ -9,6 +9,7 @@ from app.api.chat import router as chat_router
 from app.api.financial import router as financial_router
 from app.api.goals import router as goals_router
 from app.api.health import router as health_router
+from app.api.imports import router as imports_router
 from app.api.knowledge import router as knowledge_router
 from app.api.ledgers import router as ledgers_router
 from app.api.ocr import router as ocr_router
@@ -49,6 +50,7 @@ def create_app(
     application.include_router(knowledge_router)
     application.include_router(speech_router)
     application.include_router(ocr_router)
+    application.include_router(imports_router)
     mount_scheduler(application, app_settings)
     return application
 

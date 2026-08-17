@@ -56,6 +56,8 @@ class Settings(BaseSettings):
 
     schedule_enabled: bool = False
 
+    upload_dir: str = "./uploads"
+
     backup_dir: str = "./backups"
     backup_retention: int = Field(default=7, ge=1)
 

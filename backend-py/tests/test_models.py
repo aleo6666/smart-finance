@@ -52,6 +52,7 @@ MODEL_COLUMNS = [
             "amount",
             "currency",
             "note",
+            "receipt_path",
             "income_source",
             "occurred_at",
             "created_at",

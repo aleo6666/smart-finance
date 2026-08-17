@@ -86,6 +86,7 @@ class Transaction(Base):
         String(16), default="CNY", server_default="CNY"
     )
     note: Mapped[str | None] = mapped_column(Text())
+    receipt_path: Mapped[str | None] = mapped_column(String(512))
     income_source: Mapped[str | None] = mapped_column(
         Enum(
             "salary",
