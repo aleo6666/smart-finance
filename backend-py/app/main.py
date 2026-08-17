@@ -11,10 +11,13 @@ from app.api.goals import router as goals_router
 from app.api.health import router as health_router
 from app.api.knowledge import router as knowledge_router
 from app.api.ledgers import router as ledgers_router
+from app.api.ocr import router as ocr_router
 from app.api.records import router as records_router
 from app.api.reports import router as reports_router
+from app.api.speech import router as speech_router
 from app.core.config import Settings, get_settings
 from app.core.errors import install_exception_handlers
+from app.tasks.scheduler import mount_scheduler
 
 
 def create_app(
@@ -44,6 +47,9 @@ def create_app(
     application.include_router(analysis_router)
     application.include_router(reports_router)
     application.include_router(knowledge_router)
+    application.include_router(speech_router)
+    application.include_router(ocr_router)
+    mount_scheduler(application, app_settings)
     return application
 
 

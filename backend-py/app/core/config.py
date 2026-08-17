@@ -1,3 +1,4 @@
+import os
 from decimal import Decimal
 from functools import lru_cache
 from typing import Literal, Self
@@ -48,6 +49,30 @@ class Settings(BaseSettings):
     anomaly_standard_deviations: Decimal = Field(
         default=Decimal("2"), gt=Decimal("0")
     )
+
+    xfyun_app_id: str | None = None
+    xfyun_api_key: str | None = None
+    xfyun_api_secret: str | None = None
+
+    schedule_enabled: bool = False
+
+    backup_dir: str = "./backups"
+    backup_retention: int = Field(default=7, ge=1)
+
+    s3_endpoint_url: str | None = None
+    s3_access_key: str | None = None
+    s3_secret_key: str | None = None
+    s3_bucket: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_legacy_xfyun_appid(cls, values):
+        # 旧 Node .env 用 XFYUN_APPID（无下划线）；兼容两种拼写
+        if isinstance(values, dict) and not values.get("xfyun_app_id"):
+            legacy = os.environ.get("XFYUN_APPID")
+            if legacy:
+                values["xfyun_app_id"] = legacy
+        return values
 
     @model_validator(mode="after")
     def validate_rerank_count(self) -> Self:

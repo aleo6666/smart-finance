@@ -1,31 +1,35 @@
+"""Chat API（对齐旧 Node chat.js 契约）。
+
+响应信封 ``{success: true, data: {message, source, ...}}``，``source`` 标记为
+``"langgraph"`` 与旧系统一致；``user_id`` 从 Bearer token 解析，不再从 body 传。
+"""
+
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from langchain_core.messages import AIMessage, HumanMessage
 from pydantic import BaseModel, Field
 
+from app.api.deps import get_current_user
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1)
-    user_id: int = Field(gt=0)
     ledger_id: int | None = Field(default=None, gt=0)
 
 
-class ChatResponse(BaseModel):
-    reply: str
-    tools: list[str]
-    sources: list[dict[str, Any]]
-
-
-@router.post("/chat", response_model=ChatResponse)
-async def chat(payload: ChatRequest, request: Request) -> ChatResponse:
+@router.post("/chat")
+async def chat(
+    payload: ChatRequest,
+    request: Request,
+    user_id: int = Depends(get_current_user),
+) -> dict[str, Any]:
     result = await request.app.state.chat_agent.ainvoke(
         {
             "messages": [HumanMessage(content=payload.message)],
-            "user_id": payload.user_id,
+            "user_id": user_id,
             "ledger_id": payload.ledger_id,
             "retrieved_context": "",
             "dataset_refs": [],
@@ -41,9 +45,13 @@ async def chat(payload: ChatRequest, request: Request) -> ChatResponse:
         ),
         AIMessage(content="需要更精确的信息，请补充条件"),
     )
-    return ChatResponse(
-        reply=str(final_message.content),
-        tools=result.get("used_tools", []),
-        sources=result.get("dataset_refs", []),
-    )
-
+    return {
+        "success": True,
+        "data": {
+            "message": str(final_message.content),
+            "source": "langgraph",
+            "intent": "chat",
+            "tools": result.get("used_tools", []),
+            "sources": result.get("dataset_refs", []),
+        },
+    }

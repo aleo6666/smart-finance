@@ -148,3 +148,22 @@ class Goal(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(), server_default=func.now()
     )
+
+
+class Reminder(Base):
+    __tablename__ = "reminders"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(index=True)
+    type: Mapped[str] = mapped_column(
+        String(64), default="anomaly", server_default="anomaly"
+    )
+    title: Mapped[str] = mapped_column(String(255))
+    message: Mapped[str | None] = mapped_column(Text())
+    status: Mapped[str] = mapped_column(
+        String(32), default="pending", server_default="pending"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), server_default=func.now()
+    )
+    read_at: Mapped[datetime | None] = mapped_column(DateTime())
