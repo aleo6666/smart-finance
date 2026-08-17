@@ -6,6 +6,7 @@ from app.api.analysis import router as analysis_router
 from app.api.chat import router as chat_router
 from app.api.financial import router as financial_router
 from app.api.health import router as health_router
+from app.api.knowledge import router as knowledge_router
 from app.api.reports import router as reports_router
 from app.core.config import Settings, get_settings
 from app.core.errors import install_exception_handlers
@@ -32,6 +33,7 @@ def create_app(
     application.include_router(financial_router)
     application.include_router(analysis_router)
     application.include_router(reports_router)
+    application.include_router(knowledge_router)
     return application
 
 

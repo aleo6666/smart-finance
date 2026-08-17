@@ -47,6 +47,7 @@ def test_alembic_upgrade_head_creates_business_schema_in_sqlite(
             "liabilities",
             "user_profiles",
             "reports",
+            "knowledge_documents",
             "alembic_version",
         } <= table_names
 
@@ -59,6 +60,7 @@ def test_alembic_upgrade_head_creates_business_schema_in_sqlite(
             "liabilities",
             "user_profiles",
             "reports",
+            "knowledge_documents",
         ):
             index_names = [
                 row[1]
