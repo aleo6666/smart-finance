@@ -4,7 +4,7 @@ sqlalchemy[asyncio]>=2.0.36,<3.0.0
 alembic>=1.14.0,<2.0.0
 pydantic-settings>=2.7.0,<3.0.0
 python-jose[cryptography]>=3.3.0,<4.0.0
-passlib[bcrypt]>=1.7.4,<2.0.0
+passlib[bcrypt]>=1.7.4,<2.0.0  # password hashing via native bcrypt API (passlib only as fallback)
 python-multipart>=0.0.20,<1.0.0
 pypdf>=5.1.0,<7.0.0
 qdrant-client==1.11.3
