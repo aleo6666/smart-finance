@@ -44,6 +44,8 @@ Redis 在阶段 1 不启动。配置保留可选的 `REDIS_URL`，只有后续�
 - PostgreSQL：`postgresql+asyncpg://...`
 - SQLite：`sqlite+aiosqlite:///...`
 
+MySQL 异步驱动固定使用 `asyncmy`，不安装或使用 `aiomysql`；`requirements.txt` 必须显式包含 `asyncmy`。
+
 `backend-py/alembic/env.py` 复用同一 `DATABASE_URL` 和 ORM metadata，使用异步连接执行在线迁移；离线模式生成 SQL。阶段 1 建立迁移环境，阶段 2 再生成首个新模型迁移。
 
 `app/api`、`app/models`、`app/schemas`、`app/services`、`app/agents` 和 `app/tasks` 在阶段 1 建立 Python 包边界，但不加入无行为的业务占位实现。
@@ -83,7 +85,7 @@ Dockerfile 使用 `python:3.11-slim`，以非 root 用户运行 Uvicorn。依赖
 Compose 中：
 
 - `mysql` 使用 MySQL 8.4、独立持久卷和 `mysqladmin ping` 健康检查。
-- `qdrant` 使用固定兼容版本、独立持久卷和容器内 TCP 健康检查。
+- `qdrant` 固定使用 `qdrant/qdrant:v1.11.3`、独立持久卷和容器内 TCP 健康检查，禁止使用 `latest`。
 - `backend` 等待 MySQL 与 Qdrant 健康后启动，从 `.env` 读取配置，并对 `/api/health` 执行容器健康检查。
 - 只有后端端口映射到宿主机；数据库和 Qdrant 默认只在 Compose 网络内可见。
 
@@ -107,9 +109,10 @@ Compose 中：
 1. `pytest` 全部通过。
 2. `python -m compileall app` 通过。
 3. `docker compose config` 通过且不暴露真实密钥。
-4. Docker Desktop 可用后，`docker compose up -d --build` 启动三个服务。
-5. `curl http://localhost:3000/api/health` 返回旧后端兼容响应。
-6. `curl http://localhost:3000/api/health/ready` 返回 HTTP 200 和 `status: ready`。
+4. 确认宿主机 `127.0.0.1:3000` 未被旧后端或其他进程占用；如被占用，先停止对应进程，不静默改用其他端口。
+5. Docker Desktop 可用后，`docker compose up -d --build` 启动三个服务。
+6. `curl http://localhost:3000/api/health` 返回旧后端兼容响应。
+7. `curl http://localhost:3000/api/health/ready` 返回 HTTP 200 和 `status: ready`。
 
 如果当前机器的 Docker daemon 不可用，前 3 项仍需完成；容器启动验收明确记录为环境阻塞，Docker 恢复后补做，不用伪造成功结果。
 
