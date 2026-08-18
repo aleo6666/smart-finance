@@ -4,12 +4,15 @@ from app.models.base import Base
 from app.models.business import Budget, Goal, Ledger, Reminder, Transaction, User
 from app.models.financial import Asset, Liability, UserProfile
 from app.models.knowledge import KnowledgeDocument
+from app.models.memory import ConversationMessage, ConversationSummary
 from app.models.report import Report
 
 __all__ = [
     "Asset",
     "Base",
     "Budget",
+    "ConversationMessage",
+    "ConversationSummary",
     "Goal",
     "Ledger",
     "Liability",

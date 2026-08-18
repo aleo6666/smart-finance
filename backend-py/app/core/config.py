@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     rag_max_context_chars: int = Field(default=12000, ge=1000)
     agent_max_iterations: int = Field(default=8, ge=1, le=32)
     memory_auto_ingest: bool = True
+    session_history_limit: int = Field(default=20, ge=1)  # 滑动窗口注入条数
+    summary_threshold: int = Field(default=20, ge=1)  # 触发滚动摘要的消息数阈值
+    history_retention: int = Field(default=500, ge=1)  # 每用户历史保留上限
     anomaly_standard_deviations: Decimal = Field(
         default=Decimal("2"), gt=Decimal("0")
     )
