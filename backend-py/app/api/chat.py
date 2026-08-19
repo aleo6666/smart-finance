@@ -48,6 +48,7 @@ async def chat(
     messages.append(HumanMessage(content=payload.message))
 
     # 2. 其余字段与现状一致，仅 messages 变为注入后的完整上下文
+    #    thread_id=user_id：为 interrupt 人工确认提供 checkpoint 上下文
     result = await request.app.state.chat_agent.ainvoke(
         {
             "messages": messages,
@@ -57,7 +58,8 @@ async def chat(
             "dataset_refs": [],
             "used_tools": [],
             "iterations": 0,
-        }
+        },
+        config={"configurable": {"thread_id": str(user_id)}},
     )
     final_message = next(
         (
@@ -88,7 +90,7 @@ async def chat(
         "data": {
             "message": str(final_message.content),
             "source": "langgraph",
-            "intent": "chat",
+            "intent": result.get("intent", "chat"),
             "tools": result.get("used_tools", []),
             "sources": result.get("dataset_refs", []),
         },

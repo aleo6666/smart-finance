@@ -6,15 +6,26 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from langchain_core.messages import AIMessage, BaseMessage, SystemMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from langchain_core.tools import BaseTool
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import Command, interrupt
 
 from app.agents.prompts import build_agent_system_prompt
+from app.agents.nodes.analyst_loop import create_analyst_loop_node
 from app.agents.nodes.cfp_node import build_cfp_context
 from app.agents.nodes.memory_node import create_memory_node
 from app.agents.state import AgentState, ValidatedToolCall
 from app.agents.tools import (
+    create_analysis_tools,
+    create_create_record_tool,
     create_financial_planning_tools,
     create_query_transactions_tool,
     create_search_knowledge_base_tool,
@@ -27,11 +38,53 @@ from app.core.llm import get_chat_model, parse_json_object
 MAX_ITERATIONS_FALLBACK = "需要更精确的信息，请补充条件"
 logger = logging.getLogger(__name__)
 
+# 分析类意图关键字（中文/英文），命中则走受约束 analyst_loop；否则走原记账 workflow
+ANALYSIS_INTENT_KEYWORDS = (
+    "health",
+    "ratio",
+    "trend",
+    "breakdown",
+    "scenario",
+    "analysis",
+    "健康",
+    "比率",
+    "负债率",
+    "储蓄率",
+    "流动性",
+    "趋势",
+    "结构",
+    "占比",
+    "情景",
+    "推演",
+    "分析",
+    "现金流",
+    "支出构成",
+)
+
+
+def classify_intent(text: str) -> str:
+    """Deterministic intent routing (no LLM): analysis vs chat/record."""
+    normalized = str(text).lower()
+    if any(keyword in normalized for keyword in ANALYSIS_INTENT_KEYWORDS):
+        return "analysis"
+    return "chat"
+
 
 def _latest_ai_message(messages: list[BaseMessage]) -> AIMessage | None:
     return next(
         (message for message in reversed(messages) if isinstance(message, AIMessage)),
         None,
+    )
+
+
+def _latest_user_text(messages: list[BaseMessage]) -> str:
+    return next(
+        (
+            str(message.content)
+            for message in reversed(messages)
+            if isinstance(message, HumanMessage)
+        ),
+        "",
     )
 
 
@@ -126,11 +179,28 @@ def create_agent_graph(
     tools: list[BaseTool],
     max_iterations: int = 8,
     max_context_chars: int = 12000,
+    tool_timeout: float = 30.0,
+    analyst_max_iterations: int = 5,
+    analysis_tools: list[BaseTool] | None = None,
     cfp_context_provider: Callable[[int], Awaitable[dict]] | None = None,
     memory_processor: Callable[[AgentState], Awaitable[dict[str, Any]]] | None = None,
+    pending_write_executor: Callable[[dict[str, Any]], Awaitable[str]] | None = None,
 ):
     tools_by_name = {tool.name: tool for tool in tools}
     bound_model = model.bind_tools(tools)
+    analysis_tools = list(analysis_tools or [])
+    analyst_loop = create_analyst_loop_node(
+        model=model,
+        analysis_tools=analysis_tools,
+        tool_timeout=tool_timeout,
+        analyst_max_iterations=analyst_max_iterations,
+    )
+
+    async def route_intent(state: AgentState) -> dict[str, Any]:
+        return {"intent": classify_intent(_latest_user_text(state.get("messages", [])))}
+
+    def route_from_intent(state: AgentState) -> str:
+        return "analyst_loop" if state.get("intent") == "analysis" else "inject_cfp_context"
 
     async def inject_cfp_context(state: AgentState) -> dict[str, Any]:
         if cfp_context_provider is None:
@@ -149,9 +219,19 @@ def create_agent_graph(
         system_message = SystemMessage(
             content=build_agent_system_prompt(state.get("retrieved_context", ""))
         )
-        response = await bound_model.ainvoke(
-            [system_message, *state.get("messages", [])]
-        )
+        try:
+            response = await asyncio.wait_for(
+                bound_model.ainvoke(
+                    [system_message, *state.get("messages", [])]
+                ),
+                timeout=tool_timeout,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("call_model timed out after %ss", tool_timeout)
+            return {
+                "messages": [AIMessage(content="处理超时，请重试或缩小问题范围")],
+                "iterations": state.get("iterations", 0) + 1,
+            }
         if not isinstance(response, AIMessage):
             response = AIMessage(content=str(response))
         return {
@@ -184,7 +264,10 @@ def create_agent_graph(
                 [],
             )
         try:
-            result = await tools_by_name[call["name"]].ainvoke(call["args"])
+            result = await asyncio.wait_for(
+                tools_by_name[call["name"]].ainvoke(call["args"]),
+                timeout=tool_timeout,
+            )
             content, context, refs = _tool_payload(result)
             return (
                 ToolMessage(
@@ -195,6 +278,18 @@ def create_agent_graph(
                 call["name"],
                 context,
                 refs,
+            )
+        except asyncio.TimeoutError:
+            return (
+                ToolMessage(
+                    content=f"工具 {call['name']} 执行超时",
+                    tool_call_id=call["id"],
+                    name=call["name"],
+                    status="error",
+                ),
+                call["name"],
+                "",
+                [],
             )
         except Exception as exc:
             return (
@@ -214,6 +309,22 @@ def create_agent_graph(
         if not calls:
             return {}
         results = await asyncio.gather(*(run_one_tool(call) for call in calls))
+        # 检测写确认：create_record 返回 confirm_required=True → 挂起等待人工确认
+        pending = state.get("pending_write")
+        for call, (msg, name, _, _) in zip(calls, results):
+            if name == "create_record" and msg.content:
+                try:
+                    parsed = json.loads(msg.content)
+                    if isinstance(parsed, dict) and parsed.get("confirm_required"):
+                        pending = {
+                            "tool": name,
+                            "id": call["id"],
+                            "args": call["args"],
+                            "idempotency_key": parsed.get("idempotency_key"),
+                            "reason": parsed.get("reason", ""),
+                        }
+                except Exception:
+                    pass
         contexts = [context for _, _, context, _ in results if context]
         current_context = state.get("retrieved_context", "")
         combined_context = "\n\n".join(
@@ -226,6 +337,35 @@ def create_agent_graph(
             "dataset_refs": [
                 ref for _, _, _, refs in results for ref in refs if isinstance(ref, dict)
             ],
+            "pending_write": pending,
+        }
+
+    async def human_approval(state: AgentState) -> dict[str, Any]:
+        """interrupt 等待用户确认写操作；确认后通过确定性写入执行器落库（幂等）。"""
+        pending = state.get("pending_write")
+        if pending is None:
+            return {"write_confirmed": False, "pending_write": None}
+        decision = interrupt({"pending_write": pending})
+        if decision is True and pending_write_executor is not None:
+            try:
+                content = await pending_write_executor(pending)
+                return {
+                    "messages": [AIMessage(content=content)],
+                    "write_confirmed": True,
+                    "pending_write": None,
+                }
+            except Exception as exc:
+                return {
+                    "messages": [
+                        AIMessage(content=f"确认后写入失败，请重试：{exc}")
+                    ],
+                    "write_confirmed": False,
+                    "pending_write": None,
+                }
+        return {
+            "messages": [AIMessage(content="已取消该笔记账。")],
+            "write_confirmed": False,
+            "pending_write": None,
         }
 
     async def loop(state: AgentState) -> dict[str, Any]:
@@ -236,9 +376,14 @@ def create_agent_graph(
                 "messages": [AIMessage(content=MAX_ITERATIONS_FALLBACK)],
                 "continue_loop": False,
             }
-        return {"continue_loop": has_tool_calls}
+        # 写操作待确认 → 挂起等人工（优先于继续工具循环）
+        if state.get("pending_write") is not None:
+            return {"continue_loop": False, "needs_approval": True}
+        return {"continue_loop": has_tool_calls, "needs_approval": False}
 
     def route_loop(state: AgentState) -> str:
+        if state.get("needs_approval", False):
+            return "human_approval"
         return "call_model" if state.get("continue_loop", False) else "end"
 
     async def persist_memory(state: AgentState) -> dict[str, Any]:
@@ -251,13 +396,25 @@ def create_agent_graph(
             return {}
 
     workflow = StateGraph(AgentState)
+    workflow.add_node("route_intent", route_intent)
+    workflow.add_node("analyst_loop", analyst_loop)
     workflow.add_node("inject_cfp_context", inject_cfp_context)
     workflow.add_node("call_model", call_model)
     workflow.add_node("validate_tool", validate_tool)
     workflow.add_node("execute_tool", execute_tool)
     workflow.add_node("loop", loop)
+    workflow.add_node("human_approval", human_approval)
     workflow.add_node("persist_memory", persist_memory)
-    workflow.add_edge(START, "inject_cfp_context")
+    workflow.add_edge(START, "route_intent")
+    workflow.add_conditional_edges(
+        "route_intent",
+        route_from_intent,
+        {
+            "analyst_loop": "analyst_loop",
+            "inject_cfp_context": "inject_cfp_context",
+        },
+    )
+    workflow.add_edge("analyst_loop", "persist_memory")
     workflow.add_edge("inject_cfp_context", "call_model")
     workflow.add_edge("call_model", "validate_tool")
     workflow.add_edge("validate_tool", "execute_tool")
@@ -265,10 +422,15 @@ def create_agent_graph(
     workflow.add_conditional_edges(
         "loop",
         route_loop,
-        {"call_model": "call_model", "end": "persist_memory"},
+        {
+            "call_model": "call_model",
+            "human_approval": "human_approval",
+            "end": "persist_memory",
+        },
     )
+    workflow.add_edge("human_approval", "persist_memory")
     workflow.add_edge("persist_memory", END)
-    return workflow.compile().with_config(
+    return workflow.compile(checkpointer=MemorySaver()).with_config(
         {"recursion_limit": max_iterations * 4 + 4}
     )
 
@@ -291,12 +453,35 @@ def create_default_agent(
         create_query_transactions_tool(sessions),
         create_search_similar_records_tool(client, app_settings),
         create_search_knowledge_base_tool(client, app_settings),
+        create_create_record_tool(sessions, app_settings),
         *create_financial_planning_tools(sessions),
     ]
+    analysis_tools = create_analysis_tools(sessions)
 
     async def provide_cfp_context(user_id: int) -> dict:
         async with sessions() as session:
             return await build_cfp_context(session, user_id)
+
+    from app.agents.tools.create_record import insert_record
+
+    async def execute_pending_write(pending: dict[str, Any]) -> str:
+        """人工确认后执行写操作（幂等键保证不重复落库）。"""
+        args = pending.get("args", {})
+        async with sessions() as session:
+            record = await insert_record(
+                session,
+                user_id=args["user_id"],
+                type=args.get("type", "expense"),
+                category=args["category"],
+                amount=args["amount"],
+                currency=args.get("currency", "CNY"),
+                ledger_id=args.get("ledger_id"),
+                note=args.get("note"),
+                occurred_at=args.get("occurred_at"),
+                income_source=args.get("income_source"),
+                idempotency_key=pending["idempotency_key"],
+            )
+        return f"已确认记账：{record.category} {record.amount} 元"
 
     agent_model = model or get_chat_model(app_settings)
     memory_processor = create_memory_node(
@@ -310,6 +495,10 @@ def create_default_agent(
         tools=tools,
         max_iterations=app_settings.agent_max_iterations,
         max_context_chars=app_settings.rag_max_context_chars,
+        tool_timeout=app_settings.tool_timeout,
+        analyst_max_iterations=app_settings.analyst_max_iterations,
+        analysis_tools=analysis_tools,
         cfp_context_provider=provide_cfp_context,
         memory_processor=memory_processor,
+        pending_write_executor=execute_pending_write,
     )

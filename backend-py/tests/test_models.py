@@ -52,6 +52,7 @@ MODEL_COLUMNS = [
             "amount",
             "currency",
             "note",
+            "idempotency_key",
             "receipt_path",
             "income_source",
             "occurred_at",

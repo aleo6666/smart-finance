@@ -11,7 +11,7 @@ class FakeAgent:
     def __init__(self) -> None:
         self.last_state: dict = {}
 
-    async def ainvoke(self, state: dict) -> dict:
+    async def ainvoke(self, state: dict, config: dict | None = None) -> dict:
         self.last_state = state
         return {
             "messages": [AIMessage(content="协议兼容测试回复")],

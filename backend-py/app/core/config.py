@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     rag_rerank_top_k: int = Field(default=5, ge=1, le=100)
     rag_max_context_chars: int = Field(default=12000, ge=1000)
     agent_max_iterations: int = Field(default=8, ge=1, le=32)
+    analyst_max_iterations: int = Field(default=5, ge=1, le=10)
     memory_auto_ingest: bool = True
     session_history_limit: int = Field(default=20, ge=1)  # 滑动窗口注入条数
     summary_threshold: int = Field(default=20, ge=1)  # 触发滚动摘要的消息数阈值
@@ -52,6 +53,17 @@ class Settings(BaseSettings):
     anomaly_standard_deviations: Decimal = Field(
         default=Decimal("2"), gt=Decimal("0")
     )
+
+    record_confirm_threshold: Decimal = Field(
+        default=Decimal("200"), gt=Decimal("0")
+    )  # 大额确认阈值
+    confirm_fast_categories: list[str] = Field(
+        default_factory=lambda: ["餐饮", "交通", "日用品", "娱乐", "医疗"]
+    )  # 小额直通白名单
+    confirm_ambiguous_words: list[str] = Field(
+        default_factory=lambda: ["报销", "分期", "借款", "预付", "押金"]
+    )  # 歧义词触发确认
+    tool_timeout: float = Field(default=30.0)  # 单次 LLM/工具调用超时秒数
 
     xfyun_app_id: str | None = None
     xfyun_api_key: str | None = None

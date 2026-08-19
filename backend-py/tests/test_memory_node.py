@@ -342,7 +342,8 @@ async def test_agent_graph_runs_non_blocking_memory_step_after_final_answer() ->
 
     result = await graph.ainvoke(
         {"messages": [HumanMessage(content="普通问题")], "user_id": 11}
-    )
+    ,
+        config={"configurable": {"thread_id": "test"}})
 
     assert observed == [11]
     assert result["messages"][-1].content == "done"

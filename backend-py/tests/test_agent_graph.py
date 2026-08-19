@@ -48,7 +48,8 @@ async def test_routes_tool_call_and_forces_state_user_id() -> None:
 
     result = await graph.ainvoke(
         {"messages": [HumanMessage(content="food")], "user_id": 7}
-    )
+    ,
+        config={"configurable": {"thread_id": "test"}})
 
     assert observed_user_ids == [7]
     assert result["used_tools"] == ["lookup"]
@@ -82,7 +83,8 @@ async def test_supports_multiple_tool_rounds() -> None:
 
     result = await graph.ainvoke(
         {"messages": [HumanMessage(content="question")], "user_id": 3}
-    )
+    ,
+        config={"configurable": {"thread_id": "test"}})
 
     assert calls == ["first", "second"]
     assert result["used_tools"] == ["first", "second"]
@@ -103,7 +105,8 @@ async def test_max_iterations_returns_safe_fallback() -> None:
 
     result = await graph.ainvoke(
         {"messages": [HumanMessage(content="question")], "user_id": 3}
-    )
+    ,
+        config={"configurable": {"thread_id": "test"}})
 
     assert len(model.calls) == 8
     assert result["messages"][-1].content == "需要更精确的信息，请补充条件"
@@ -123,7 +126,8 @@ async def test_validate_tool_blocks_unknown_tool_name() -> None:
 
     result = await graph.ainvoke(
         {"messages": [HumanMessage(content="question")], "user_id": 3}
-    )
+    ,
+        config={"configurable": {"thread_id": "test"}})
 
     tool_messages = [
         message for message in result["messages"] if isinstance(message, ToolMessage)
@@ -171,7 +175,8 @@ async def test_combined_retrieval_context_respects_total_character_limit() -> No
 
     result = await graph.ainvoke(
         {"messages": [HumanMessage(content="question")], "user_id": 3}
-    )
+    ,
+        config={"configurable": {"thread_id": "test"}})
 
     assert len(result["retrieved_context"]) == 60
 
@@ -196,7 +201,8 @@ async def test_injects_cfp_context_before_first_model_call() -> None:
 
     await graph.ainvoke(
         {"messages": [HumanMessage(content="规划")], "user_id": 7}
-    )
+    ,
+        config={"configurable": {"thread_id": "test"}})
 
     assert observed_user_ids == [7]
     system_prompt = model.calls[0][0].content
