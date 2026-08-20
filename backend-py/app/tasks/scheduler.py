@@ -94,6 +94,14 @@ async def run_backup_job(settings: Settings) -> list:
     return await asyncio.to_thread(run_backup, "full", settings)
 
 
+async def run_exchange_fetch(settings: Settings) -> bool:
+    """每小时刷新汇率快照（失败静默，下次重试）。"""
+    from app.services.exchange_rate import fetch_rates
+
+    async with AsyncSessionLocal() as session:
+        return await fetch_rates(session)
+
+
 def create_scheduler(settings: Settings):
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -124,6 +132,14 @@ def create_scheduler(settings: Settings):
         hour=4,
         minute=0,
         id="backup",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        run_exchange_fetch,
+        "interval",
+        args=[settings],
+        hours=1,
+        id="exchange_rates",
         replace_existing=True,
     )
     return scheduler

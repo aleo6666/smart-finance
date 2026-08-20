@@ -32,6 +32,40 @@
         <router-link to="/import" active-class="active">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span> 账单导入
         </router-link>
+
+        <div class="nav-group">财务健康</div>
+        <router-link to="/health" active-class="active">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span> 财务健康
+        </router-link>
+        <router-link to="/investments" active-class="active">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="6" x2="14" y2="14"/><line x1="22" y1="6" x2="16" y2="6"/><line x1="22" y1="6" x2="22" y2="2"/><polyline points="16 6 10 12 6 8 2 12"/></svg></span> 投资组合
+        </router-link>
+        <router-link to="/debts" active-class="active">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg></span> 债务管理
+        </router-link>
+
+        <div class="nav-group">生活规划</div>
+        <router-link to="/subscriptions" active-class="active">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span> 订阅管家
+        </router-link>
+        <router-link to="/tax" active-class="active">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg></span> 个税测算
+        </router-link>
+        <router-link to="/insurance" active-class="active">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span> 保单管理
+        </router-link>
+
+        <div class="nav-group">家庭与设置</div>
+        <router-link to="/family" active-class="active">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span> 家庭共享
+        </router-link>
+        <router-link to="/notifications" active-class="active">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></span> 通知中心
+        </router-link>
+        <router-link to="/privacy" active-class="active">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span> 隐私中心
+        </router-link>
+
         <a class="feedback-nav" @click="showFeedback = true" href="javascript:void(0)">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span> 意见反馈
         </a>
@@ -93,6 +127,7 @@
             </div>
             <button class="reminder-read-btn" @click.stop="store.markReminderRead(r.id)">已读</button>
           </div>
+          <router-link class="view-all" to="/notifications">查看全部通知 →</router-link>
         </div>
       </div>
       <router-view v-slot="{ Component }">
@@ -113,7 +148,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, watch, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from './stores/app.js'
 import FeedbackModal from './components/FeedbackModal.vue'
@@ -127,7 +162,14 @@ const isLoginPage = computed(() => route.name === 'login')
 const showFeedback = ref(false)
 
 const pageTitle = computed(() => {
-  const titles = { chat: '智能顾问', reports: '消费分析', report: '月度报告', assets: '资产台账', goals: '目标规划', exchange: '汇率看板', import: '账单导入' }
+  const titles = {
+    chat: '智能顾问', reports: '消费分析', report: '月度报告', assets: '资产台账',
+    goals: '目标规划', exchange: '汇率看板', import: '账单导入',
+    health: '财务健康', investments: '投资组合', debts: '债务管理',
+    subscriptions: '订阅管家', tax: '个税测算', insurance: '保单管理',
+    notifications: '通知中心', family: '家庭共享', privacy: '隐私中心',
+    'not-found': '页面不存在'
+  }
   return titles[route.name] || '智能顾问'
 })
 
@@ -135,12 +177,6 @@ function handleLogout() {
   store.logout()
   router.push('/login')
 }
-
-watch(() => route.name, (name) => {
-  if (name !== 'login' && !store.token) {
-    router.push('/login')
-  }
-}, { immediate: true })
 
 onMounted(async () => {
   if (store.token) {
@@ -201,6 +237,29 @@ onMounted(async () => {
 .feedback-nav:hover {
   background: var(--bg-subtle);
   color: var(--text-title);
+}
+
+.nav-group {
+  margin: 14px 12px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+
+.reminder-panel .view-all {
+  display: block;
+  text-align: center;
+  padding: 8px 0 4px;
+  color: var(--primary);
+  font-size: 13px;
+  text-decoration: none;
+  border-top: 1px solid var(--border);
+  margin-top: 6px;
+}
+.reminder-panel .view-all:hover {
+  text-decoration: underline;
 }
 
 .reminder-item {

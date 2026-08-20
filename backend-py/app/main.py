@@ -11,19 +11,32 @@ logging.basicConfig(
 
 from app.agents.graph import create_default_agent
 from app.api.analysis import router as analysis_router
+from app.api.assets import router as assets_router
 from app.api.auth import router as auth_router
 from app.api.budgets import router as budgets_router
 from app.api.chat import router as chat_router
+from app.api.debts import router as debts_router
+from app.api.exchange import router as exchange_router
+from app.api.family import router as family_router
+from app.api.feedback import router as feedback_router
 from app.api.financial import router as financial_router
 from app.api.goals import router as goals_router
 from app.api.health import router as health_router
+from app.api.health_score import router as health_score_router
 from app.api.imports import router as imports_router
+from app.api.insurance import router as insurance_router
+from app.api.investments import router as investments_router
 from app.api.knowledge import router as knowledge_router
 from app.api.ledgers import router as ledgers_router
+from app.api.notifications import legacy_router as reminders_router
+from app.api.notifications import router as notifications_router
 from app.api.ocr import router as ocr_router
+from app.api.privacy import router as privacy_router
 from app.api.records import router as records_router
 from app.api.reports import router as reports_router
 from app.api.speech import router as speech_router
+from app.api.subscriptions import router as subscriptions_router
+from app.api.tax import router as tax_router
 from app.core.config import Settings, get_settings
 from app.core.errors import install_exception_handlers
 from app.tasks.scheduler import mount_scheduler
@@ -59,6 +72,19 @@ def create_app(
     application.include_router(speech_router)
     application.include_router(ocr_router)
     application.include_router(imports_router)
+    application.include_router(assets_router)
+    application.include_router(debts_router)
+    application.include_router(investments_router)
+    application.include_router(subscriptions_router)
+    application.include_router(tax_router)
+    application.include_router(insurance_router)
+    application.include_router(health_score_router)
+    application.include_router(notifications_router)
+    application.include_router(reminders_router)
+    application.include_router(family_router)
+    application.include_router(privacy_router)
+    application.include_router(exchange_router)
+    application.include_router(feedback_router)
     mount_scheduler(application, app_settings)
     return application
 

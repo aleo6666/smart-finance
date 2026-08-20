@@ -85,14 +85,16 @@
         <div class="form-group">
           <label>类型</label>
           <select v-model="form.type">
-            <option value="deposit">存款</option>
-            <option value="fund">基金</option>
-            <option value="stock">股票</option>
-            <option value="liability">负债</option>
+            <option value="cash">现金</option>
+            <option value="bank_deposit">银行存款</option>
+            <option value="investment">投资</option>
+            <option value="property">房产</option>
+            <option value="vehicle">车辆</option>
+            <option value="other">其他</option>
           </select>
         </div>
         <div class="form-group">
-          <label>余额 (元，负债请填负数)</label>
+          <label>金额 (元)</label>
           <input v-model.number="form.balance" type="number" placeholder="0.00" />
         </div>
         <div class="form-group">
@@ -122,10 +124,10 @@ const store = useAppStore()
 const router = useRouter()
 
 const TYPE_MAP = {
-  deposit: '存款', fund: '基金', stock: '股票', liability: '负债',
-  存款: '存款', 基金: '基金', 股票: '股票', 负债: '负债'
+  cash: '现金', bank_deposit: '银行存款', investment: '投资', property: '房产', vehicle: '车辆', other: '其他',
+  现金: '现金', 银行存款: '银行存款', 投资: '投资', 房产: '房产', 车辆: '车辆', 其他: '其他'
 }
-const TYPE_ORDER = ['存款', '基金', '股票', '负债', '其他']
+const TYPE_ORDER = ['现金', '银行存款', '投资', '房产', '车辆', '负债', '其他']
 
 const loading = ref(true)
 const error = ref('')
@@ -136,7 +138,7 @@ const trend = ref([]) // [{ label, value }]
 const showAddModal = ref(false)
 const saving = ref(false)
 const saveError = ref('')
-const form = ref({ name: '', type: 'deposit', balance: null, note: '' })
+const form = ref({ name: '', type: 'cash', balance: null, note: '' })
 
 const trendRef = ref(null)
 let trendInst = null
@@ -242,9 +244,9 @@ function applyAccounts(list) {
   accounts.value = (list || []).map(a => ({
     id: a.id,
     name: a.name ?? '未命名账户',
-    type: a.type ?? 'deposit',
-    balance: Number(a.balance ?? a.amount ?? 0) || 0,
-    note: a.note ?? a.remark ?? ''
+    type: a.type ?? 'cash',
+    balance: Number(a.amount ?? a.balance ?? 0) || 0,
+    note: a.notes ?? a.note ?? a.remark ?? ''
   }))
 }
 
@@ -299,15 +301,15 @@ async function createAccount() {
     const res = await api.createAsset({
       name: form.value.name,
       type: form.value.type,
-      balance: Number(form.value.balance),
-      note: form.value.note || undefined
+      amount: Number(form.value.balance),
+      notes: form.value.note || undefined
     })
     if (res && res.success === false) {
       saveError.value = res.error || '保存失败，请重试'
       return
     }
     showAddModal.value = false
-    form.value = { name: '', type: 'deposit', balance: null, note: '' }
+    form.value = { name: '', type: 'cash', balance: null, note: '' }
     await loadData()
   } catch (e) {
     saveError.value = '网络错误，保存失败'

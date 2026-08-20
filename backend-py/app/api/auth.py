@@ -9,7 +9,7 @@ import re
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
@@ -20,7 +20,28 @@ from app.api.deps import (
     verify_password,
 )
 from app.core.database import get_db
-from app.models import Ledger, User
+from app.models import (
+    Asset,
+    Budget,
+    ConversationMessage,
+    ConversationSummary,
+    Goal,
+    InsurancePolicy,
+    Investment,
+    KnowledgeDocument,
+    Ledger,
+    LedgerMember,
+    Liability,
+    PrivacyConsent,
+    Reminder,
+    Report,
+    Subscription,
+    TaxRecord,
+    Team,
+    Transaction,
+    User,
+    UserProfile,
+)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -135,3 +156,79 @@ async def me(
             "ledgers": [_serialize_ledger(ledger) for ledger in ledgers],
         },
     }
+
+
+@router.post("/refresh")
+async def refresh_token(
+    user_id: int = Depends(get_current_user),
+) -> dict:
+    """Stateless JWT renewal: a still-valid token receives a fresh one."""
+    return {"success": True, "data": {"token": create_access_token(user_id)}}
+
+
+@router.post("/logout")
+async def logout(
+    user_id: int = Depends(get_current_user),
+) -> dict:
+    """Client-side logout. JWT is stateless so no server revocation happens."""
+    del user_id
+    return {"success": True, "message": "已退出登录"}
+
+
+# 无外键约束、按 user_id 隔离的表，注销时需手动清理；
+# 其余表由数据库 ON DELETE CASCADE 处理。
+_USER_SCOPED_MODELS = [
+    ConversationMessage,
+    ConversationSummary,
+    KnowledgeDocument,
+    Reminder,
+]
+
+
+@router.delete("/account")
+async def delete_account(
+    user_id: int = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Permanently delete the account and all owned data."""
+    user = await db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    for model in _USER_SCOPED_MODELS:
+        await db.execute(delete(model).where(model.user_id == user_id))
+
+    # 解散自己创建的家庭，并清掉共享成员关系
+    owned_team_ids = list(
+        (await db.scalars(select(Team.id).where(Team.owner_id == user_id))).all()
+    )
+    for team_id in owned_team_ids:
+        await db.execute(
+            delete(LedgerMember).where(LedgerMember.team_id == team_id)
+        )
+    await db.execute(delete(Team).where(Team.owner_id == user_id))
+    await db.execute(
+        delete(LedgerMember).where(LedgerMember.user_id == user_id)
+    )
+
+    # 显式清理 Cascade FK 表（SQLite 测试环境默认不启用 FK 级联）
+    for model in [
+        Transaction,
+        Ledger,
+        Budget,
+        Goal,
+        Asset,
+        Liability,
+        UserProfile,
+        Report,
+        Investment,
+        Subscription,
+        TaxRecord,
+        InsurancePolicy,
+        PrivacyConsent,
+    ]:
+        await db.execute(delete(model).where(model.user_id == user_id))
+
+    await db.delete(user)
+    await db.commit()
+    return {"success": True, "message": "账号已注销"}

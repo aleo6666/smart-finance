@@ -11,7 +11,7 @@ import hashlib
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_or_create_default_ledger
@@ -304,3 +304,241 @@ async def confirm_receipt(
     await db.commit()
     await db.refresh(record)
     return {"success": True, "data": _serialize_created(record)}
+
+
+# ---------------------------------------------------------------------------
+# 批次导入（对齐旧 Node 后端 import.js：upload / paste / batches / detail /
+# records 编辑 / select / confirm / rollback）。静态路径必须先于 /{batch_id}
+# 注册，避免 FastAPI 路径冲突。
+# ---------------------------------------------------------------------------
+
+
+class ImportPastePayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    content: str
+    ledger_id: int | None = Field(
+        default=None, validation_alias=AliasChoices("ledger_id", "ledgerId")
+    )
+    file_name: str | None = Field(
+        default=None, validation_alias=AliasChoices("file_name", "fileName")
+    )
+
+
+class ImportUpdateRecordPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    category: str | None = None
+    amount: Decimal | None = None
+    date: str | None = None
+    description: str | None = None
+    merchant: str | None = None
+    type: str | None = None
+    selected: bool | None = None
+
+    @field_validator("type")
+    @classmethod
+    def _validate_type(cls, value: str | None) -> str | None:
+        if value is not None and value not in {"income", "expense"}:
+            raise ValueError("type must be income or expense")
+        return value
+
+    @field_validator("amount")
+    @classmethod
+    def _validate_amount(cls, value: Decimal | None) -> Decimal | None:
+        if value is None:
+            return None
+        quantized = value.quantize(MONEY, rounding=ROUND_HALF_UP)
+        if quantized <= 0:
+            raise ValueError("amount must be positive")
+        return quantized
+
+    @field_validator("date")
+    @classmethod
+    def _validate_date(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        try:
+            return date.fromisoformat(value).isoformat()
+        except ValueError:
+            raise ValueError("invalid date, expected YYYY-MM-DD") from None
+
+
+class ImportSelectPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    record_ids: list[int] = Field(validation_alias=AliasChoices("record_ids", "recordIds"))
+    selected: bool = True
+
+
+class ImportBatchConfirmPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    selected_ids: list[int] | None = Field(
+        default=None, validation_alias=AliasChoices("selected_ids", "selectedIds")
+    )
+
+
+@router.post("/upload")
+async def import_upload(
+    file: UploadFile = File(...),
+    ledger_id: int | None = Form(None, alias="ledgerId"),
+    user_id: int = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    from app.services.import_batches import create_batch
+    from app.services.importers.bill_batch import BillParseError, parse_bill_file
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="请上传文件")
+    filename = file.filename or "import.csv"
+    try:
+        parsed = parse_bill_file(data, filename)
+    except (CsvBillError, BillParseError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not parsed["records"]:
+        raise HTTPException(status_code=400, detail="未解析到任何有效交易，请检查账单文件格式")
+    try:
+        result = await create_batch(
+            db,
+            user_id,
+            ledger_id,
+            parsed["source_type"],
+            filename,
+            parsed["records"],
+            parsed["total_count"],
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"success": True, "data": result}
+
+
+@router.post("/paste")
+async def import_paste(
+    payload: ImportPastePayload,
+    user_id: int = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    from app.services.import_batches import create_batch
+    from app.services.importers.bill_batch import BillParseError, parse_csv_bill_content
+
+    if not payload.content.strip():
+        raise HTTPException(status_code=400, detail="请粘贴账单内容")
+    try:
+        parsed = parse_csv_bill_content(
+            payload.content, payload.file_name or "paste.csv"
+        )
+    except (CsvBillError, BillParseError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not parsed["records"]:
+        raise HTTPException(status_code=400, detail="未解析到任何有效交易，请检查账单内容")
+    try:
+        result = await create_batch(
+            db,
+            user_id,
+            payload.ledger_id,
+            parsed["source_type"],
+            payload.file_name or "paste.csv",
+            parsed["records"],
+            parsed["total_count"],
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"success": True, "data": result}
+
+
+@router.get("/batches")
+async def import_batches(
+    page: int = 1,
+    page_size: int = 20,
+    user_id: int = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    from app.services.import_batches import get_batch_list
+
+    result = await get_batch_list(db, user_id, page, page_size)
+    return {"success": True, "data": result}
+
+
+@router.get("/{batch_id}")
+async def import_batch_detail(
+    batch_id: int,
+    user_id: int = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    from app.services.import_batches import get_batch_detail
+
+    result = await get_batch_detail(db, batch_id, user_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="批次不存在")
+    return {"success": True, "data": result}
+
+
+@router.put("/{batch_id}/records/{record_id}")
+async def import_update_record(
+    batch_id: int,
+    record_id: int,
+    payload: ImportUpdateRecordPayload,
+    user_id: int = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    from app.services.import_batches import update_record
+
+    updates = payload.model_dump(exclude_unset=True)
+    try:
+        result = await update_record(db, batch_id, record_id, user_id, updates)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"success": True, "data": result}
+
+
+@router.post("/{batch_id}/select")
+async def import_select_records(
+    batch_id: int,
+    payload: ImportSelectPayload,
+    user_id: int = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    from app.services.import_batches import select_records
+
+    if not payload.record_ids:
+        raise HTTPException(status_code=400, detail="请选择记录")
+    try:
+        result = await select_records(
+            db, batch_id, payload.record_ids, payload.selected, user_id
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"success": True, "data": result}
+
+
+@router.post("/{batch_id}/confirm")
+async def import_confirm_batch(
+    batch_id: int,
+    payload: ImportBatchConfirmPayload,
+    user_id: int = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    from app.services.import_batches import confirm_import
+
+    try:
+        result = await confirm_import(db, batch_id, user_id, payload.selected_ids)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"success": True, "data": result}
+
+
+@router.post("/{batch_id}/rollback")
+async def import_rollback_batch(
+    batch_id: int,
+    user_id: int = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    from app.services.import_batches import rollback_batch
+
+    try:
+        result = await rollback_batch(db, batch_id, user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"success": True, "data": result}

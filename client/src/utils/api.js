@@ -496,5 +496,233 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data)
     })
+  },
+  updateAsset(id, data) {
+    return request(`/api/assets/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    })
+  },
+  deleteAsset(id) {
+    return request(`/api/assets/${id}`, { method: 'DELETE' })
+  },
+  createLiability(data) {
+    return request('/api/assets/liabilities', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  },
+  updateLiability(id, data) {
+    return request(`/api/assets/liabilities/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    })
+  },
+  deleteLiability(id) {
+    return request(`/api/assets/liabilities/${id}`, { method: 'DELETE' })
+  },
+
+  // ====== 债务还款 ======
+  getDebts() {
+    return request('/api/debts')
+  },
+  getDebtsOverview() {
+    return request('/api/debts/overview')
+  },
+  createDebt(data) {
+    return request('/api/debts', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  },
+  updateDebt(id, data) {
+    return request(`/api/debts/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    })
+  },
+  deleteDebt(id) {
+    return request(`/api/debts/${id}`, { method: 'DELETE' })
+  },
+
+  // ====== 投资组合 ======
+  getInvestments() {
+    return request('/api/investments')
+  },
+  getInvestmentsOverview() {
+    return request('/api/investments/overview')
+  },
+  createInvestment(data) {
+    return request('/api/investments', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  },
+  updateInvestment(id, data) {
+    return request(`/api/investments/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    })
+  },
+  deleteInvestment(id) {
+    return request(`/api/investments/${id}`, { method: 'DELETE' })
+  },
+
+  // ====== 订阅管家 ======
+  getSubscriptions(params = {}) {
+    const qs = new URLSearchParams(params).toString()
+    return request(`/api/subscriptions${qs ? `?${qs}` : ''}`)
+  },
+  getSubscriptionsOverview() {
+    return request('/api/subscriptions/overview')
+  },
+  getSubscriptionsUpcoming(days = 30) {
+    return request(`/api/subscriptions/upcoming?days=${days}`)
+  },
+  createSubscription(data) {
+    return request('/api/subscriptions', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  },
+  updateSubscription(id, data) {
+    return request(`/api/subscriptions/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    })
+  },
+  deleteSubscription(id) {
+    return request(`/api/subscriptions/${id}`, { method: 'DELETE' })
+  },
+
+  // ====== 个税测算 ======
+  calculateTax(data) {
+    return request('/api/tax/calculate', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  },
+  getTaxRecords() {
+    return request('/api/tax/records')
+  },
+  deleteTaxRecord(id) {
+    return request(`/api/tax/records/${id}`, { method: 'DELETE' })
+  },
+
+  // ====== 保单管理 ======
+  getInsurancePolicies() {
+    return request('/api/insurance')
+  },
+  getInsuranceOverview() {
+    return request('/api/insurance/overview')
+  },
+  createInsurancePolicy(data) {
+    return request('/api/insurance', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  },
+  updateInsurancePolicy(id, data) {
+    return request(`/api/insurance/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    })
+  },
+  deleteInsurancePolicy(id) {
+    return request(`/api/insurance/${id}`, { method: 'DELETE' })
+  },
+
+  // ====== 财务健康 ======
+  getHealthScore() {
+    return request('/api/health-score')
+  },
+
+  // ====== 通知中心 ======
+  getNotifications(limit = 50) {
+    return request(`/api/notifications?limit=${limit}`)
+  },
+  getNotificationsCount() {
+    return request('/api/notifications/count')
+  },
+  markNotificationRead(id) {
+    return request(`/api/notifications/${id}/read`, { method: 'PUT' })
+  },
+  markNotificationsAllRead() {
+    return request('/api/notifications/read-all', { method: 'PUT' })
+  },
+  deleteNotification(id) {
+    return request(`/api/notifications/${id}`, { method: 'DELETE' })
+  },
+
+  // ====== 家庭共享 ======
+  getFamilyTeams() {
+    return request('/api/family/teams')
+  },
+  createFamilyTeam(data) {
+    return request('/api/family/teams', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  },
+  joinFamilyTeam(inviteCode) {
+    return request('/api/family/teams/join', {
+      method: 'POST',
+      body: JSON.stringify({ invite_code: inviteCode })
+    })
+  },
+  getFamilyTeamDetail(id) {
+    return request(`/api/family/teams/${id}`)
+  },
+  addFamilyMember(teamId, email) {
+    return request(`/api/family/teams/${teamId}/members`, {
+      method: 'POST',
+      body: JSON.stringify({ email })
+    })
+  },
+  removeFamilyMember(teamId, memberId) {
+    return request(`/api/family/teams/${teamId}/members/${memberId}`, { method: 'DELETE' })
+  },
+  disbandFamilyTeam(id) {
+    return request(`/api/family/teams/${id}`, { method: 'DELETE' })
+  },
+  getSharedLedgers() {
+    return request('/api/family/ledgers')
+  },
+  shareLedger(teamId, ledgerId) {
+    return request('/api/family/ledgers', {
+      method: 'POST',
+      body: JSON.stringify({ team_id: teamId, ledger_id: ledgerId })
+    })
+  },
+  unshareLedger(memberId) {
+    return request(`/api/family/ledgers/${memberId}`, { method: 'DELETE' })
+  },
+  getSharedLedgerRecords(ledgerId, limit = 50) {
+    return request(`/api/family/ledgers/${ledgerId}/records?limit=${limit}`)
+  },
+
+  // ====== 隐私中心 ======
+  getConsents() {
+    return request('/api/privacy/consents')
+  },
+  upsertConsent(data) {
+    return request('/api/privacy/consents', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  },
+  getPrivacyData() {
+    return request('/api/privacy/data')
+  },
+
+  // ====== 会话扩展 ======
+  refreshToken() {
+    return request('/api/auth/refresh', { method: 'POST' })
+  },
+  logout() {
+    return request('/api/auth/logout', { method: 'POST' })
+  },
+  deleteAccount() {
+    return request('/api/auth/account', { method: 'DELETE' })
   }
 }
