@@ -120,17 +120,16 @@ async def persist_conversation_memories(
     qdrant: Any,
     ingester: Callable[[MemoryFact], Awaitable[None]],
 ) -> int:
-    """Classify, deduplicate, and persist durable facts without raising."""
+    """Classify, deduplicate, and persist durable facts without raising.
+
+    成本策略（小马/用户决策：能单 agent 就单 agent，token 贵要省）：
+    - extract_memory_candidates 已用规则预筛（MEMORY_PATTERN）
+    - 类别直接用规则分类（_fallback_memory_fact），**零 LLM 调用**
+    - 规则分类器足够（目标/偏好/规则三类的关键词覆盖），省掉每条候选的 LLM 分类
+    """
     ingested = 0
     for candidate in extract_memory_candidates(messages):
-        try:
-            fact = await classify_memory_candidate(model, candidate)
-        except Exception:
-            logger.warning(
-                "Memory LLM classification failed; using rule fallback",
-                exc_info=True,
-            )
-            fact = _fallback_memory_fact(candidate)
+        fact = _fallback_memory_fact(candidate)
         if fact is None:
             continue
         try:
