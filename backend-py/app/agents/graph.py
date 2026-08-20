@@ -23,6 +23,10 @@ from app.agents.prompts import build_agent_system_prompt
 from app.agents.nodes.analyst_loop import create_analyst_loop_node
 from app.agents.nodes.cfp_node import build_cfp_context
 from app.agents.nodes.confirm_policy import confirm_required, is_first_category
+from app.agents.nodes.intent_router import (
+    CLARIFY_MESSAGE,
+    route_intent_hybrid,
+)
 from app.agents.nodes.memory_node import create_memory_node
 from app.agents.nodes.record_draft import create_record_draft_node
 from app.agents.state import AgentState, ValidatedToolCall
@@ -226,9 +230,28 @@ def create_agent_graph(
     record_draft = create_record_draft_node(model, tool_timeout)
 
     async def route_intent(state: AgentState) -> dict[str, Any]:
-        return {"intent": classify_intent(_latest_user_text(state.get("messages", [])))}
+        text = _latest_user_text(state.get("messages", []))
+        routed = await route_intent_hybrid(model, text, tool_timeout)
+        # 低置信 → 反问澄清（clarify=True，消息已注入，直接路由到 END）
+        if routed["clarify"]:
+            return {
+                "intent": "chat",
+                "intent_clarify": True,
+                "intent_confidence": routed["confidence"],
+                "intent_method": routed["method"],
+                "messages": [AIMessage(content=CLARIFY_MESSAGE)],
+            }
+        return {
+            "intent": routed["intent"],
+            "intent_clarify": False,
+            "intent_confidence": routed["confidence"],
+            "intent_method": routed["method"],
+            "intent_subtype": routed.get("subtype", ""),
+        }
 
     def route_from_intent(state: AgentState) -> str:
+        if state.get("intent_clarify", False):
+            return "end_clarify"
         intent = state.get("intent", "chat")
         if intent == "analysis":
             return "analyst_loop"
@@ -527,6 +550,7 @@ def create_agent_graph(
     workflow.add_node("analyst_loop", analyst_loop)
     workflow.add_node("record_draft", record_draft)
     workflow.add_node("execute_record_workflow", execute_record_workflow)
+    workflow.add_node("end_clarify", lambda state: state)
     workflow.add_node("inject_cfp_context", inject_cfp_context)
     workflow.add_node("call_model", call_model)
     workflow.add_node("validate_tool", validate_tool)
@@ -541,9 +565,11 @@ def create_agent_graph(
         {
             "analyst_loop": "analyst_loop",
             "record_draft": "record_draft",
+            "end_clarify": "end_clarify",
             "inject_cfp_context": "inject_cfp_context",
         },
     )
+    workflow.add_edge("end_clarify", END)
     workflow.add_edge("analyst_loop", "persist_memory")
     workflow.add_edge("record_draft", "execute_record_workflow")
     workflow.add_conditional_edges(

@@ -27,6 +27,10 @@ class AgentState(TypedDict, total=False):
     needs_approval: bool  # 写操作待人工确认标记（loop → route_loop → human_approval）
     pending_write: dict[str, Any] | None  # 待人工确认的写操作 {tool, args, idempotency_key, reason}
     write_confirmed: bool | None  # interrupt 恢复后的人工决策
-    intent: str  # 意图路由结果：analysis / record / chat
+    intent: str  # 意图路由结果：analysis / record / query / chat
+    intent_clarify: bool  # 低置信 → 反问澄清
+    intent_confidence: float  # 意图置信度（rule=1.0，llm=模型返回）
+    intent_method: str  # 识别方法：rule / llm
+    intent_subtype: str  # LLM 细分：expense/income/transactions/health...
     analysis: str  # 分析路径外置输出字段（不进 messages，防上下文膨胀）
     record_draft: dict[str, Any] | None  # 记账 workflow 草稿 {type, category, amount, note, occurred_at}

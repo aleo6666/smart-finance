@@ -129,6 +129,14 @@ async def test_tool_timeout_returns_error_message() -> None:
 
     class ToolModel:
         async def ainvoke(self, messages: list[object]) -> AIMessage:
+            from langchain_core.messages import SystemMessage
+            if messages and any(
+                isinstance(m, SystemMessage) and "意图识别器" in str(m.content)
+                for m in messages
+            ):
+                return AIMessage(
+                    content='{"category": "chat", "subtype": "other", "confidence": 1.0, "reason": "test"}'
+                )
             return AIMessage(
                 content="",
                 tool_calls=[

@@ -41,6 +41,14 @@ class JsonModel:
         self.calls: list[list[object]] = []
 
     async def ainvoke(self, messages: list[object]) -> AIMessage:
+        from langchain_core.messages import SystemMessage
+        if messages and any(
+            isinstance(m, SystemMessage) and "意图识别器" in str(m.content)
+            for m in messages
+        ):
+            return AIMessage(
+                content='{"category": "chat", "subtype": "other", "confidence": 1.0, "reason": "test"}'
+            )
         self.calls.append(messages)
         return AIMessage(content=self.content)
 
@@ -328,6 +336,14 @@ async def test_agent_graph_runs_non_blocking_memory_step_after_final_answer() ->
             return self
 
         async def ainvoke(self, messages: list[object]) -> AIMessage:
+            from langchain_core.messages import SystemMessage
+            if messages and any(
+                isinstance(m, SystemMessage) and "意图识别器" in str(m.content)
+                for m in messages
+            ):
+                return AIMessage(
+                    content='{"category": "chat", "subtype": "other", "confidence": 1.0, "reason": "test"}'
+                )
             return AIMessage(content="done")
 
     observed: list[int] = []

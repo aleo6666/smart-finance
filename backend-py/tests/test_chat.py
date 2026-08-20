@@ -14,6 +14,15 @@ class RoutingModel:
         return self
 
     async def ainvoke(self, messages: list[object]) -> AIMessage:
+        # 意图识别路由调用（intent_router LLM 层）：固定返回 chat 意图
+        from langchain_core.messages import SystemMessage
+        if messages and any(
+            isinstance(m, SystemMessage) and "意图识别器" in str(m.content)
+            for m in messages
+        ):
+            return AIMessage(
+                content='{"category": "chat", "subtype": "other", "confidence": 1.0, "reason": "test"}'
+            )
         tool_result = next(
             (message for message in reversed(messages) if isinstance(message, ToolMessage)),
             None,
@@ -93,7 +102,7 @@ async def test_chat_sql_question_reports_tool_and_answer() -> None:
         "data": {
             "message": "本月餐饮支出为 88.00 元。",
             "source": "langgraph",
-            "intent": "chat",
+            "intent": "query",
             "tools": ["query_transactions"],
             "sources": [],
         },

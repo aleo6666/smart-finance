@@ -18,6 +18,15 @@ class ScriptedModel:
         return self
 
     async def ainvoke(self, messages: list[object]) -> AIMessage:
+        # 意图识别路由调用（intent_router LLM 层）：固定返回 chat 意图
+        from langchain_core.messages import SystemMessage
+        if messages and any(
+            isinstance(m, SystemMessage) and "意图识别器" in str(m.content)
+            for m in messages
+        ):
+            return AIMessage(
+                content='{"category": "chat", "subtype": "other", "confidence": 1.0, "reason": "test"}'
+            )
         self.calls.append(messages)
         return self.responses.pop(0)
 
