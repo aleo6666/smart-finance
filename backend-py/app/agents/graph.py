@@ -231,7 +231,13 @@ def create_agent_graph(
 
     async def route_intent(state: AgentState) -> dict[str, Any]:
         text = _latest_user_text(state.get("messages", []))
-        routed = await route_intent_hybrid(model, text, tool_timeout)
+        # 提取上下文：最近 4 条用户消息（不含当前句），供上下文意图识别
+        user_texts = [
+            str(m.content)
+            for m in reversed(state.get("messages", []))
+            if isinstance(m, HumanMessage)
+        ][1:5]
+        routed = await route_intent_hybrid(model, text, tool_timeout, history=user_texts)
         # 低置信 → 反问澄清（clarify=True，消息已注入，直接路由到 END）
         if routed["clarify"]:
             return {

@@ -1,9 +1,11 @@
-"""混合意图识别测试：规则层零 LLM / LLM 层 / 置信度反问 / 日志。
+"""混合意图识别测试：规则层零 LLM / LLM 层 / 置信度反问 / 上下文继承 / 日志。
 
 覆盖：
 - 规则层：高置信语句直接命中，不调 LLM（fake 模型断言 0 次调用）
 - LLM 层：规则未命中时调用，粗分+细分+置信度
 - 置信度阈值：低置信 → clarify=True（反问）
+- 上下文层：单句低置信 + 上一条意图明确 + 承接词 → 规则继承（零 LLM）
+- 上下文层：历史模糊时 LLM 上下文判断
 - 图级：clarify 路由到 END 并返回反问消息
 """
 from __future__ import annotations
@@ -15,6 +17,7 @@ from app.agents.graph import create_agent_graph
 from app.agents.nodes.intent_router import (
     CLARIFY_MESSAGE,
     CONFIDENCE_THRESHOLD,
+    _context_rule_inherit,
     rule_route,
     route_intent_hybrid,
 )
@@ -116,6 +119,78 @@ async def test_hybrid_llm_failure_degrades_to_chat() -> None:
     result = await route_intent_hybrid(_BrokenLLM(), "随便聊聊", tool_timeout=5)
     assert result["intent"] == "chat"
     assert result["method"] == "llm"
+
+
+# ---------------- 上下文层 ----------------
+
+def test_context_rule_inherit() -> None:
+    # 上一条意图明确 + 承接词 → 继承
+    result = _context_rule_inherit("那这个月呢", ["这个月花了多少"])
+    assert result is not None
+    assert result["intent"] == "query"
+    assert result["method"] == "context_rule"
+    assert result["confidence"] == 0.85
+
+    # 上一条是记账 → 继承 record
+    result = _context_rule_inherit("然后呢", ["今天午餐花了25元"])
+    assert result is not None
+    assert result["intent"] == "record"
+
+    # 无历史 → 不继承
+    assert _context_rule_inherit("那这个月呢", None) is None
+
+    # 上一条模糊（规则层 None）→ 不继承
+    assert _context_rule_inherit("那这个月呢", ["帮我看看"]) is None
+
+    # 无承接词 → 不继承
+    assert _context_rule_inherit("这个月", ["这个月花了多少"]) is None
+
+
+@pytest.mark.asyncio
+async def test_hybrid_context_inherit_zero_llm() -> None:
+    # 纯承接词（"那然后呢"无新信息）+ 历史明确 → 跳过单句 LLM，直接上下文规则继承
+    # 用 "那然后呢" 纯承接词（不命中规则层关键词）
+    llm = _CountingLLM(
+        '{"category": "chat", "subtype": "other", "confidence": 0.4, "reason": "单句信息不足"}'
+    )
+    result = await route_intent_hybrid(
+        llm, "那然后呢", tool_timeout=5,
+        history=["这个月花了多少"],
+    )
+    assert result["intent"] == "query"
+    assert result["method"] == "context_rule"
+    assert result["clarify"] is False
+    assert llm.calls == 0, "纯承接词跳过单句 LLM，上下文继承零 LLM"
+
+
+@pytest.mark.asyncio
+async def test_hybrid_context_llm_when_history_ambiguous() -> None:
+    # 单句低置信 + 历史也模糊 → LLM 上下文层判断
+    class _SeqLLM:
+        def __init__(self):
+            self.calls = 0
+        def bind_tools(self, tools):
+            return self
+        async def ainvoke(self, messages):
+            self.calls += 1
+            from langchain_core.messages import SystemMessage
+            joined = " ".join(str(m.content)[:200] for m in messages)
+            if self.calls == 1:
+                # 第一次：上下文层调用（历史模糊→LLM 上下文）
+                if "结合历史" in joined:
+                    return AIMessage(content='{"category": "analysis", "subtype": "health", "confidence": 0.9, "reason": "结合上文是问财务状况"}')
+                return AIMessage(content='{"category": "chat", "subtype": "other", "confidence": 0.5, "reason": "单句模糊"}')
+            return AIMessage(content='{"category": "chat", "subtype": "other", "confidence": 0.5, "reason": "x"}')
+
+    llm = _SeqLLM()
+    result = await route_intent_hybrid(
+        llm, "那我呢", tool_timeout=5,
+        history=["帮我看看", "最近有点乱"],
+    )
+    assert result["intent"] == "analysis"
+    assert result["method"] == "llm_context"
+    assert result["clarify"] is False
+    assert llm.calls == 1, "历史模糊且无承接词→单句 LLM + 上下文 LLM 共 1 次（单句低置信后上下文）"
 
 
 # ---------------- 图级：clarify 路由到 END ----------------

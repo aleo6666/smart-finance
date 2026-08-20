@@ -148,11 +148,18 @@ async def llm_route(model: Any, text: str, tool_timeout: float = 30.0) -> dict[s
     }
 
 
-async def route_intent_hybrid(model: Any, text: str, tool_timeout: float = 30.0) -> dict[str, Any]:
-    """混合意图识别入口：规则 → LLM → 置信度。
+async def route_intent_hybrid(
+    model: Any,
+    text: str,
+    tool_timeout: float = 30.0,
+    history: list[str] | None = None,
+) -> dict[str, Any]:
+    """混合意图识别入口：规则 → LLM 单句 → 上下文（规则继承 / LLM 上下文）→ 置信度。
+
+    history: 最近对话的用户消息文本列表（不含当前句，[0] 为上一条）。
 
     Returns:
-      {"intent": str, "subtype": str, "confidence": float, "method": "rule"|"llm",
+      {"intent": str, "subtype": str, "confidence": float, "method": "rule"|"llm"|"context_rule"|"llm_context",
        "clarify": bool, "latency_ms": int, "reason": str}
     """
     t0 = time.monotonic()
@@ -175,37 +182,172 @@ async def route_intent_hybrid(model: Any, text: str, tool_timeout: float = 30.0)
             "reason": "规则层命中",
         }
 
-    # ② LLM 层
+    # ② LLM 层（单句）——但纯承接词（"然后呢"无新信息）跳过单句，直接走上下文层
+    is_pure_bridge = (
+        bool(history)
+        and any(word in text for word in CONTEXT_BRIDGE_WORDS)
+        and not AMOUNT_RE.search(text)
+        and not any(kw in text for kw in QUERY_KEYWORDS)
+        and not any(kw in text for kw in ANALYSIS_KEYWORDS)
+        and not any(v in text for v in RECORD_VERBS)
+    )
+    if is_pure_bridge:
+        context_result = await _context_route(model, text, history, tool_timeout)
+        latency_ms = int((time.monotonic() - t0) * 1000)
+        if context_result is not None and context_result["confidence"] >= CONFIDENCE_THRESHOLD:
+            logger.info(
+                "intent_router method=%s text=%r intent=%s confidence=%.2f latency_ms=%d reason=%r",
+                context_result["method"], text[:80], context_result["intent"],
+                context_result["confidence"], latency_ms, context_result["reason"],
+            )
+            context_result["latency_ms"] = latency_ms
+            context_result["clarify"] = False
+            return context_result
+
     llm_result = await llm_route(model, text, tool_timeout)
     latency_ms = int((time.monotonic() - t0) * 1000)
 
-    # ③ 置信度阈值
-    if llm_result["confidence"] < CONFIDENCE_THRESHOLD:
+    if llm_result["confidence"] >= CONFIDENCE_THRESHOLD:
         logger.info(
-            "intent_router method=llm text=%r intent=clarify confidence=%.2f latency_ms=%d reason=%r",
-            text[:80], llm_result["confidence"], latency_ms, llm_result["reason"],
+            "intent_router method=llm text=%r intent=%s subtype=%s confidence=%.2f latency_ms=%d reason=%r",
+            text[:80], llm_result["category"], llm_result["subtype"],
+            llm_result["confidence"], latency_ms, llm_result["reason"],
         )
         return {
-            "intent": "chat",
-            "subtype": "",
+            "intent": llm_result["category"],
+            "subtype": llm_result["subtype"],
             "confidence": llm_result["confidence"],
             "method": "llm",
-            "clarify": True,
+            "clarify": False,
             "latency_ms": latency_ms,
             "reason": llm_result["reason"],
         }
 
+    # ③ 上下文层：单句低置信 → 结合历史推断（很多用户意图在上下文里）
+    context_result = await _context_route(model, text, history, tool_timeout)
+    latency_ms = int((time.monotonic() - t0) * 1000)
+
+    if context_result is not None and context_result["confidence"] >= CONFIDENCE_THRESHOLD:
+        logger.info(
+            "intent_router method=%s text=%r intent=%s subtype=%s confidence=%.2f latency_ms=%d reason=%r",
+            context_result["method"], text[:80], context_result["intent"],
+            context_result["subtype"], context_result["confidence"],
+            latency_ms, context_result["reason"],
+        )
+        context_result["latency_ms"] = latency_ms
+        context_result["clarify"] = False
+        return context_result
+
+    # ④ 仍低置信 → 反问
     logger.info(
-        "intent_router method=llm text=%r intent=%s subtype=%s confidence=%.2f latency_ms=%d reason=%r",
-        text[:80], llm_result["category"], llm_result["subtype"],
-        llm_result["confidence"], latency_ms, llm_result["reason"],
+        "intent_router method=%s text=%r intent=clarify confidence=%.2f latency_ms=%d reason=%r",
+        (context_result or {}).get("method", "llm"), text[:80],
+        (context_result or llm_result)["confidence"], latency_ms,
+        (context_result or llm_result)["reason"],
     )
     return {
-        "intent": llm_result["category"],
-        "subtype": llm_result["subtype"],
-        "confidence": llm_result["confidence"],
-        "method": "llm",
-        "clarify": False,
+        "intent": "chat",
+        "subtype": "",
+        "confidence": (context_result or llm_result)["confidence"],
+        "method": (context_result or {}).get("method", "llm"),
+        "clarify": True,
         "latency_ms": latency_ms,
-        "reason": llm_result["reason"],
+        "reason": (context_result or llm_result)["reason"],
+    }
+
+
+# ---------------- 上下文层 ----------------
+
+# 承接词：单句信息不足但明显在延续上一条话题
+CONTEXT_BRIDGE_WORDS = ("呢", "那", "然后", "一共", "总共", "合计", "再说", "继续", "然后呢", "接着")
+
+
+def _context_rule_inherit(text: str, history: list[str] | None) -> dict[str, Any] | None:
+    """上下文规则继承：当前句含承接词 + 上一条用户消息意图明确 → 继承。
+
+    零 LLM（免费、可测）。继承置信度 0.85（比规则层低一档，但可信）。
+    """
+    if not history:
+        return None
+    prev_text = history[0]
+    prev_intent = rule_route(prev_text)
+    if prev_intent is None:
+        return None
+    if any(word in text for word in CONTEXT_BRIDGE_WORDS):
+        return {
+            "intent": prev_intent,
+            "subtype": "",
+            "confidence": 0.85,
+            "method": "context_rule",
+            "clarify": False,
+            "latency_ms": 0,
+            "reason": f"承接上一条意图（{prev_intent}）",
+        }
+    return None
+
+
+CONTEXT_SYSTEM_PROMPT = (
+    "你是意图识别器。以下是用户与财务助手的最近对话历史，请**结合历史**判断最后一条用户消息的意图。\n"
+    "只返回 JSON，不要 Markdown："
+    '{"category": "record|query|analysis|chat", "subtype": "细分", "confidence": 0.0-1.0, "reason": "一句话理由"}\n'
+    "category 含义：\n"
+    "- record: 记账（含金额的消费/收入）\n"
+    "- query: 查询（查账/预算/目标/余额）\n"
+    "- analysis: 财务分析（健康/趋势/结构/推演）\n"
+    "- chat: 闲聊或其他\n"
+    "重要：如果最后一条消息是省略式提问（如「那这个月呢」「一共多少」「然后呢」），\n"
+    "应结合上一条用户消息的意图给出高置信度判断，不要因为单句信息不足就报低置信。\n"
+    "confidence: 0-1；确实无法判断（历史也模糊）才给低于 0.7。\n"
+)
+
+
+async def _context_route(
+    model: Any, text: str, history: list[str] | None, tool_timeout: float
+) -> dict[str, Any] | None:
+    """上下文层：先规则继承（免费），再 LLM 上下文（带历史）。"""
+    # a. 规则继承
+    inherited = _context_rule_inherit(text, history)
+    if inherited is not None:
+        return inherited
+
+    # b. LLM 上下文（无历史可参考则跳过）
+    if not history:
+        return None
+    try:
+        context_lines = "\n".join(
+            f"用户{i + 1}: {msg[:100]}" for i, msg in enumerate(history[:4])
+        )
+        response = await asyncio.wait_for(
+            model.ainvoke(
+                [
+                    SystemMessage(content=CONTEXT_SYSTEM_PROMPT),
+                    HumanMessage(content=f"最近对话：\n{context_lines}\n\n当前消息：{text}"),
+                ]
+            ),
+            timeout=tool_timeout,
+        )
+        content = response.content if hasattr(response, "content") else str(response)
+        parsed = parse_json_object(content) or {}
+    except asyncio.TimeoutError:
+        logger.warning("intent_router context llm timeout after %ss", tool_timeout)
+        parsed = {}
+    except Exception as exc:
+        logger.warning("intent_router context llm failed: %s", exc)
+        parsed = {}
+
+    category = str(parsed.get("category", "chat"))
+    if category not in ("record", "query", "analysis", "chat"):
+        category = "chat"
+    try:
+        confidence = float(parsed.get("confidence", 0.0))
+    except (TypeError, ValueError):
+        confidence = 0.0
+    return {
+        "intent": category,
+        "subtype": str(parsed.get("subtype", "")),
+        "confidence": confidence,
+        "method": "llm_context",
+        "clarify": False,
+        "latency_ms": 0,
+        "reason": str(parsed.get("reason", "")),
     }
