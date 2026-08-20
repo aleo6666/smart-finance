@@ -1,5 +1,13 @@
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+# 业务日志输出到 stdout（Docker 收集），INFO 级别可观测意图路由/记账/记忆
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 
 from app.agents.graph import create_default_agent
 from app.api.analysis import router as analysis_router
