@@ -8,6 +8,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Request
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langgraph.types import Command
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -49,18 +50,50 @@ async def chat(
 
     # 2. 其余字段与现状一致，仅 messages 变为注入后的完整上下文
     #    thread_id=user_id：为 interrupt 人工确认提供 checkpoint 上下文
+    #    用户确认/取消上一笔待确认记账 → Command(resume=True/False) 恢复
+    text = (payload.message or "").strip()
+    resume_value: bool | None = None
+    if any(kw in text for kw in ("确认", "确认记账", "继续", "同意", "好的", "可以")):
+        resume_value = True
+    elif any(kw in text for kw in ("取消", "放弃", "不用了", "不要", "不记")):
+        resume_value = False
+
+    invoke_input: dict[str, Any] | Command = {
+        "messages": messages,
+        "user_id": user_id,
+        "ledger_id": payload.ledger_id,
+        "retrieved_context": "",
+        "dataset_refs": [],
+        "used_tools": [],
+        "iterations": 0,
+    }
+    if resume_value is not None:
+        invoke_input = Command(resume=resume_value)
     result = await request.app.state.chat_agent.ainvoke(
-        {
-            "messages": messages,
-            "user_id": user_id,
-            "ledger_id": payload.ledger_id,
-            "retrieved_context": "",
-            "dataset_refs": [],
-            "used_tools": [],
-            "iterations": 0,
-        },
+        invoke_input,
         config={"configurable": {"thread_id": str(user_id)}},
     )
+    # 写操作待人工确认（interrupt）：返回确认提示，不取空 AIMessage
+    interrupts = result.get("__interrupt__")
+    if interrupts:
+        pending = None
+        try:
+            pending = interrupts[0].value.get("pending_write") if hasattr(interrupts[0], "value") else None
+        except Exception:
+            pending = None
+        reason = (pending or {}).get("reason", "该操作需要人工确认")
+        return {
+            "success": True,
+            "data": {
+                "message": f"该记账需人工确认：{reason}。回复「确认」继续，回复「取消」放弃。",
+                "source": "langgraph",
+                "intent": result.get("intent", "chat"),
+                "tools": result.get("used_tools", []),
+                "sources": result.get("dataset_refs", []),
+                "pending_confirm": True,
+            },
+        }
+
     final_message = next(
         (
             message
