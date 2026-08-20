@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     agent_max_iterations: int = Field(default=8, ge=1, le=32)
     analyst_max_iterations: int = Field(default=5, ge=1, le=10)
     memory_auto_ingest: bool = True
-    session_history_limit: int = Field(default=20, ge=1)  # 滑动窗口注入条数
+    session_history_limit: int = Field(default=6, ge=1)  # 滑动窗口注入条数（3 轮对话：省 token 降噪音）
     summary_threshold: int = Field(default=20, ge=1)  # 触发滚动摘要的消息数阈值
     history_retention: int = Field(default=500, ge=1)  # 每用户历史保留上限
     anomaly_standard_deviations: Decimal = Field(
