@@ -169,9 +169,14 @@ def test_classify_intent_routes_analysis_keywords() -> None:
     assert classify_intent("情景推演一下") == "analysis"
 
 
-def test_classify_intent_defaults_to_chat_for_records() -> None:
-    assert classify_intent("记一笔餐饮 25 元") == "chat"
+def test_classify_intent_record_and_chat() -> None:
+    # 记账意图（含金额+动词）→ record
+    assert classify_intent("记一笔餐饮 25 元") == "record"
+    assert classify_intent("今天午餐花了25元") == "record"
+    assert classify_intent("交房租5000") == "record"
+    # 普通对话 → chat
     assert classify_intent("你好") == "chat"
+    assert classify_intent("这个月花了多少") == "chat"
 
 
 @pytest.mark.asyncio

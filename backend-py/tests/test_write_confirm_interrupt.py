@@ -83,8 +83,10 @@ async def test_large_write_interrupts_then_commits_on_confirm(db_session_factory
         tool_timeout=5,
         pending_write_executor=exec_pending,
     )
+    # 输入走 chat 意图（无记账动词），由 fake LLM 主动发起 create_record 工具调用
+    # 验证通用 ReAct 工具循环路径的大额 interrupt（与 record workflow 路径互补）
     result = await graph.ainvoke(
-        {"messages": [HumanMessage(content="交房租5000")], "user_id": 7},
+        {"messages": [HumanMessage(content="帮我看看这个月账单")], "user_id": 7},
         config={"configurable": {"thread_id": "confirm-e2e"}},
     )
     assert result.get("__interrupt__"), "大额写操作应触发 interrupt"
@@ -138,7 +140,7 @@ async def test_large_write_cancel_on_reject(db_session_factory) -> None:
         pending_write_executor=exec_pending,
     )
     result = await graph.ainvoke(
-        {"messages": [HumanMessage(content="转3000房租")], "user_id": 7},
+        {"messages": [HumanMessage(content="帮我看看这个月账单")], "user_id": 7},
         config={"configurable": {"thread_id": "cancel-e2e"}},
     )
     assert result.get("__interrupt__"), "大额写操作应触发 interrupt"

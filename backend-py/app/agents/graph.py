@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -21,7 +22,9 @@ from langgraph.types import Command, interrupt
 from app.agents.prompts import build_agent_system_prompt
 from app.agents.nodes.analyst_loop import create_analyst_loop_node
 from app.agents.nodes.cfp_node import build_cfp_context
+from app.agents.nodes.confirm_policy import confirm_required, is_first_category
 from app.agents.nodes.memory_node import create_memory_node
+from app.agents.nodes.record_draft import create_record_draft_node
 from app.agents.state import AgentState, ValidatedToolCall
 from app.agents.tools import (
     create_analysis_tools,
@@ -31,6 +34,7 @@ from app.agents.tools import (
     create_search_knowledge_base_tool,
     create_search_similar_records_tool,
 )
+from app.agents.tools.create_record import compute_idempotency_key, insert_record
 from app.core.config import Settings, get_settings
 from app.core.llm import get_chat_model, parse_json_object
 
@@ -59,15 +63,38 @@ ANALYSIS_INTENT_KEYWORDS = (
     "分析",
     "现金流",
     "支出构成",
+    "财务状况",
+    "财务怎么样",
+    "财务体检",
+    "体检",
 )
 
 
 def classify_intent(text: str) -> str:
-    """Deterministic intent routing (no LLM): analysis vs chat/record."""
+    """Deterministic intent routing (no LLM): analysis / record / chat."""
     normalized = str(text).lower()
     if any(keyword in normalized for keyword in ANALYSIS_INTENT_KEYWORDS):
         return "analysis"
+    if _looks_like_record(normalized):
+        return "record"
     return "chat"
+
+
+_RECORD_VERBS = (
+    "花了", "用了", "买了", "付了", "吃了", "喝了", "转了", "缴了",
+    "支出", "消费", "记账", "记一笔", "收入", "收到", "工资", "赚了",
+    "充值", "付款", "买了", "打车", "地铁", "外卖", "早餐", "午餐",
+    "晚餐", "房租", "水电", "话费", "打车", "购物", "存了",
+)
+_RECORD_AMOUNT_RE = re.compile(r"\d+(?:\.\d+)?\s*(?:元|块|钱|rmb)?")
+
+
+def _looks_like_record(text: str) -> bool:
+    """记账语句特征：含金额（可无单位）+ 消费/收入动词。第一性约束：没金额不记账。"""
+    has_money = bool(_RECORD_AMOUNT_RE.search(text))
+    if not has_money:
+        return False
+    return any(verb in text for verb in _RECORD_VERBS)
 
 
 def _latest_ai_message(messages: list[BaseMessage]) -> AIMessage | None:
@@ -185,6 +212,7 @@ def create_agent_graph(
     cfp_context_provider: Callable[[int], Awaitable[dict]] | None = None,
     memory_processor: Callable[[AgentState], Awaitable[dict[str, Any]]] | None = None,
     pending_write_executor: Callable[[dict[str, Any]], Awaitable[str]] | None = None,
+    sessions_factory: Any | None = None,
 ):
     tools_by_name = {tool.name: tool for tool in tools}
     bound_model = model.bind_tools(tools)
@@ -195,12 +223,18 @@ def create_agent_graph(
         tool_timeout=tool_timeout,
         analyst_max_iterations=analyst_max_iterations,
     )
+    record_draft = create_record_draft_node(model, tool_timeout)
 
     async def route_intent(state: AgentState) -> dict[str, Any]:
         return {"intent": classify_intent(_latest_user_text(state.get("messages", [])))}
 
     def route_from_intent(state: AgentState) -> str:
-        return "analyst_loop" if state.get("intent") == "analysis" else "inject_cfp_context"
+        intent = state.get("intent", "chat")
+        if intent == "analysis":
+            return "analyst_loop"
+        if intent == "record":
+            return "record_draft"
+        return "inject_cfp_context"
 
     async def inject_cfp_context(state: AgentState) -> dict[str, Any]:
         if cfp_context_provider is None:
@@ -395,9 +429,104 @@ def create_agent_graph(
             logger.warning("Agent memory step failed", exc_info=True)
             return {}
 
+    async def execute_record_workflow(state: AgentState) -> dict[str, Any]:
+        """记账确定性 workflow：draft → confirm_policy → 直通落库 or 挂起确认。
+
+        全程零 ReAct 循环：LLM 只做了 record_draft 一次提取，这里全确定性。
+        """
+        draft = state.get("record_draft")
+        if draft is None:
+            return {}
+        user_id = state["user_id"]
+        settings_obj = get_settings()
+        try:
+            async with sessions_factory() as session:
+                first = await is_first_category(session, user_id, draft["category"])
+                decision = confirm_required(
+                    {
+                        "amount": draft["amount"],
+                        "category": draft["category"],
+                        "note": draft.get("note", ""),
+                    },
+                    settings_obj,
+                    is_first_category=first,
+                )
+        except Exception as exc:
+            logger.warning("confirm_policy failed: %s", exc)
+            decision = {"confirm_required": False, "reason": None}
+
+        if not decision["confirm_required"]:
+            # 小额直通：确定性落库
+            try:
+                async with sessions_factory() as session:
+                    key = compute_idempotency_key(
+                        user_id,
+                        draft["amount"],
+                        draft["category"],
+                        draft.get("note"),
+                        draft.get("occurred_at") or None,
+                    )
+                    record = await insert_record(
+                        session,
+                        user_id=user_id,
+                        type=draft["type"],
+                        category=draft["category"],
+                        amount=draft["amount"],
+                        currency="CNY",
+                        note=draft.get("note"),
+                        occurred_at=draft.get("occurred_at") or None,
+                        idempotency_key=key,
+                    )
+                message = f"已记账：{record.category} {record.amount} 元"
+                return {
+                    "messages": [AIMessage(content=message)],
+                    "dataset_refs": [
+                        {
+                            "record_id": record.id,
+                            "amount": str(record.amount),
+                            "category": record.category,
+                        }
+                    ],
+                }
+            except Exception as exc:
+                logger.warning("record write failed: %s", exc)
+                return {
+                    "messages": [
+                        AIMessage(content="记账写入失败，请稍后重试或手动记录")
+                    ]
+                }
+        # 大额/新类别/歧义 → 挂起人工确认
+        key = compute_idempotency_key(
+            user_id,
+            draft["amount"],
+            draft["category"],
+            draft.get("note"),
+            draft.get("occurred_at") or None,
+        )
+        return {
+            "pending_write": {
+                "tool": "create_record",
+                "id": "record-workflow",
+                "args": {
+                    "user_id": user_id,
+                    "type": draft["type"],
+                    "category": draft["category"],
+                    "amount": draft["amount"],
+                    "currency": "CNY",
+                    "note": draft.get("note"),
+                    "occurred_at": draft.get("occurred_at") or None,
+                },
+                "idempotency_key": key,
+                "reason": decision["reason"],
+            },
+            "record_draft": None,
+        }
+
     workflow = StateGraph(AgentState)
     workflow.add_node("route_intent", route_intent)
     workflow.add_node("analyst_loop", analyst_loop)
+    workflow.add_node("record_draft", record_draft)
+    workflow.add_node("execute_record_workflow", execute_record_workflow)
     workflow.add_node("inject_cfp_context", inject_cfp_context)
     workflow.add_node("call_model", call_model)
     workflow.add_node("validate_tool", validate_tool)
@@ -411,10 +540,19 @@ def create_agent_graph(
         route_from_intent,
         {
             "analyst_loop": "analyst_loop",
+            "record_draft": "record_draft",
             "inject_cfp_context": "inject_cfp_context",
         },
     )
     workflow.add_edge("analyst_loop", "persist_memory")
+    workflow.add_edge("record_draft", "execute_record_workflow")
+    workflow.add_conditional_edges(
+        "execute_record_workflow",
+        lambda state: (
+            "human_approval" if state.get("pending_write") else "persist_memory"
+        ),
+        {"human_approval": "human_approval", "persist_memory": "persist_memory"},
+    )
     workflow.add_edge("inject_cfp_context", "call_model")
     workflow.add_edge("call_model", "validate_tool")
     workflow.add_edge("validate_tool", "execute_tool")
@@ -501,4 +639,5 @@ def create_default_agent(
         cfp_context_provider=provide_cfp_context,
         memory_processor=memory_processor,
         pending_write_executor=execute_pending_write,
+        sessions_factory=sessions,
     )
