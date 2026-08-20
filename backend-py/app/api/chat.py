@@ -69,6 +69,21 @@ async def chat(
     }
     if resume_value is not None:
         invoke_input = Command(resume=resume_value)
+    else:
+        # 非确认/取消词的新消息：若该 thread 有未决 interrupt（上一笔待确认记账），
+        # 先自动取消旧确认（用户转移话题 = 放弃），再正常处理新消息，避免旧状态重放
+        try:
+            snapshot = await request.app.state.chat_agent.aget_state(
+                config={"configurable": {"thread_id": str(user_id)}}
+            )
+            if snapshot is not None and (snapshot.interrupts or (snapshot.next and tuple(snapshot.next))):
+                await request.app.state.chat_agent.ainvoke(
+                    Command(resume=False),
+                    config={"configurable": {"thread_id": str(user_id)}},
+                )
+        except Exception:
+            # 状态检查失败不阻塞主流程
+            pass
     result = await request.app.state.chat_agent.ainvoke(
         invoke_input,
         config={"configurable": {"thread_id": str(user_id)}},
