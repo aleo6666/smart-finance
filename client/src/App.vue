@@ -69,6 +69,10 @@
         <a class="feedback-nav" @click="showFeedback = true" href="javascript:void(0)">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span> 意见反馈
         </a>
+
+        <a class="feedback-nav support-nav" @click="showSupport = true" href="javascript:void(0)">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 8h1a4 4 0 1 1 0 8h-1"/><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"/><line x1="6" y1="2" x2="6" y2="4"/><line x1="10" y1="2" x2="10" y2="4"/><line x1="14" y1="2" x2="14" y2="4"/></svg></span> 支持开发者
+        </a>
       </nav>
 
       <div class="today-card">
@@ -144,6 +148,9 @@
 
     <!-- 反馈弹窗 -->
     <FeedbackModal :show="showFeedback" @close="showFeedback = false" />
+
+    <!-- 支持开发者弹窗 -->
+    <SupportModal :show="showSupport" @close="showSupport = false" />
   </template>
 </template>
 
@@ -153,6 +160,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from './stores/app.js'
 import FeedbackModal from './components/FeedbackModal.vue'
 import LedgerManager from './components/LedgerManager.vue'
+import SupportModal from './components/SupportModal.vue'
 
 const store = useAppStore()
 const route = useRoute()
@@ -160,6 +168,7 @@ const router = useRouter()
 
 const isLoginPage = computed(() => route.name === 'login')
 const showFeedback = ref(false)
+const showSupport = ref(false)
 
 const pageTitle = computed(() => {
   const titles = {
