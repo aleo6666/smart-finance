@@ -271,6 +271,12 @@ async function refreshDetail() {
   }
 }
 
+function openCreateTeam() {
+  saveError.value = ''
+  newTeamName.value = ''
+  showCreate.value = true
+}
+
 async function createTeam() {
   if (!newTeamName.value.trim()) { saveError.value = '请输入家庭名称'; return }
   creating.value = true

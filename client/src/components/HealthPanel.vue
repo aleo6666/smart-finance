@@ -70,7 +70,7 @@
           <div v-for="d in analysis.dimensions" :key="d.name" class="dim-card" :style="{ borderColor: dimColor(d.score) }">
             <div class="dim-head">
               <span class="dim-name">{{ d.name }}</span>
-              <span class="dim-score num" :style="{ color: dimColor(d.score) }">{{ d.score.toFixed(0) }}</span>
+              <span class="dim-score num" :style="{ color: dimColor(d.score) }">{{ Number(d.score).toFixed(0) }}</span>
             </div>
             <div class="dim-bar">
               <div class="dim-bar-fill" :style="{ width: d.score + '%', background: dimColor(d.score) }"></div>
