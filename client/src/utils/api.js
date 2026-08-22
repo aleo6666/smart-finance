@@ -31,7 +31,7 @@ async function request(path, options = {}) {
     headers['Content-Type'] = 'application/json'
   }
 
-  const res = await fetch(path, { ...options, headers })
+  const res = await fetch(path, { cache: 'no-store', ...options, headers })
   const json = await res.json()
 
   const newId = res.headers.get('X-Device-Id')
