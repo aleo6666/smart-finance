@@ -8,7 +8,7 @@ function getDeviceId() {
 }
 
 function getToken() {
-  return localStorage.getItem('auth_token')
+  return localStorage.getItem('auth_token') || globalThis.sessionStorage?.getItem('auth_token') || null
 }
 
 function isFormData(body) {
@@ -59,11 +59,16 @@ async function downloadBlob(path, filename) {
 
 export const api = {
   // ====== v2: 鉴权 ======
-  setToken(token) {
-    localStorage.setItem('auth_token', token)
+  setToken(token, remember = true) {
+    if (remember || !globalThis.sessionStorage) {
+      localStorage.setItem('auth_token', token)
+    } else {
+      sessionStorage.setItem('auth_token', token)
+    }
   },
   clearToken() {
     localStorage.removeItem('auth_token')
+    globalThis.sessionStorage?.removeItem('auth_token')
   },
   isLoggedIn() {
     return !!getToken()

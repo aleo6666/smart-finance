@@ -14,6 +14,23 @@
     <template v-if="!loading && analysis">
       <!-- 总分卡片 -->
       <div class="report-card score-card">
+        <!-- 剪纸窗花圆环（纯装饰） -->
+        <svg class="score-deco" viewBox="0 0 200 200" aria-hidden="true">
+          <circle cx="100" cy="100" r="96" fill="none" stroke="#C4402B" stroke-width="2" opacity="0.5"/>
+          <circle cx="100" cy="100" r="80" fill="none" stroke="#C9A227" stroke-width="1.5" stroke-dasharray="4 5" opacity="0.8"/>
+          <g fill="#C4402B" opacity="0.55">
+            <path d="M100 20 C106 32 106 42 100 52 C94 42 94 32 100 20 Z"/>
+            <path d="M100 20 C106 32 106 42 100 52 C94 42 94 32 100 20 Z" transform="rotate(45 100 100)"/>
+            <path d="M100 20 C106 32 106 42 100 52 C94 42 94 32 100 20 Z" transform="rotate(90 100 100)"/>
+            <path d="M100 20 C106 32 106 42 100 52 C94 42 94 32 100 20 Z" transform="rotate(135 100 100)"/>
+            <path d="M100 20 C106 32 106 42 100 52 C94 42 94 32 100 20 Z" transform="rotate(180 100 100)"/>
+            <path d="M100 20 C106 32 106 42 100 52 C94 42 94 32 100 20 Z" transform="rotate(225 100 100)"/>
+            <path d="M100 20 C106 32 106 42 100 52 C94 42 94 32 100 20 Z" transform="rotate(270 100 100)"/>
+            <path d="M100 20 C106 32 106 42 100 52 C94 42 94 32 100 20 Z" transform="rotate(315 100 100)"/>
+          </g>
+          <circle cx="100" cy="100" r="34" fill="none" stroke="#C4402B" stroke-width="2" opacity="0.7"/>
+          <rect x="92" y="92" width="16" height="16" fill="none" stroke="#C9A227" stroke-width="2.5" transform="rotate(45 100 100)"/>
+        </svg>
         <div class="score-header">
           <div>
             <div class="score-label">财务健康总分</div>
@@ -37,7 +54,7 @@
         <!-- 雷达图 -->
         <div class="report-card">
           <h3>七维健康雷达</h3>
-          <div v-if="radarRef" ref="radarRef" class="radar-chart"></div>
+          <div v-if="analysis && analysis.dimensions && analysis.dimensions.length" ref="radarRef" class="radar-chart"></div>
           <div v-else class="empty-state" style="padding: 40px 20px;">
             <p>暂无维度数据</p>
           </div>
@@ -180,10 +197,10 @@ function renderRadar() {
       indicator: dims.map(d => ({ name: d.name, max: 100 })),
       radius: '68%',
       splitNumber: 4,
-      axisName: { color: '#64748d', fontSize: 12 },
-      splitLine: { lineStyle: { color: '#e5edf5' } },
-      splitArea: { areaStyle: { color: ['#fbfcfe', '#f6f9fc'] } },
-      axisLine: { lineStyle: { color: '#e5edf5' } }
+      axisName: { color: '#8A8578', fontSize: 12 },
+      splitLine: { lineStyle: { color: '#E8DFD0' } },
+      splitArea: { areaStyle: { color: ['#FFFFFF', '#F3EDE3'] } },
+      axisLine: { lineStyle: { color: '#E8DFD0' } }
     },
     series: [{
       type: 'radar',
@@ -192,7 +209,7 @@ function renderRadar() {
         name: '财务健康',
         lineStyle: { color: '#533afd', width: 2 },
         itemStyle: { color: '#533afd' },
-        areaStyle: { color: 'rgba(83, 58, 253, 0.12)' }
+        areaStyle: { color: 'rgba(83, 58, 253, 0.10)' }
       }]
     }]
   })
@@ -202,12 +219,27 @@ function onResize() { radarInst?.resize() }
 </script>
 
 <style scoped>
+.score-card {
+  position: relative;
+  overflow: hidden;
+}
+.score-deco {
+  position: absolute;
+  top: -46px;
+  right: -42px;
+  width: 210px;
+  height: 210px;
+  pointer-events: none;
+  opacity: 0.6;
+}
 .score-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 24px;
   flex-wrap: wrap;
+  position: relative;
+  z-index: 1;
 }
 .score-label {
   font-size: 13px;
@@ -215,7 +247,8 @@ function onResize() { radarInst?.resize() }
 }
 .score-value {
   font-size: 48px;
-  font-weight: 300;
+  font-weight: 700;
+  font-family: var(--font-serif);
   color: var(--text-title);
   letter-spacing: -0.02em;
   margin-top: 6px;
@@ -223,6 +256,7 @@ function onResize() { radarInst?.resize() }
 }
 .score-max {
   font-size: 16px;
+  font-family: var(--font-serif);
   color: var(--text-secondary);
   margin-left: 4px;
 }
@@ -302,19 +336,34 @@ function onResize() { radarInst?.resize() }
   margin-top: 12px;
 }
 .dim-card {
-  border: 1px solid var(--border);
+  border: 1px solid var(--paper-edge);
   border-left-width: 3px;
   border-radius: var(--radius-sm);
   padding: 14px 16px;
-  background: var(--bg-card);
+  background: var(--paper-card);
+  box-shadow: var(--paper-shadow);
+  transition: box-shadow 0.25s ease, transform 0.25s ease;
+}
+.dim-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--paper-shadow-lg);
 }
 .dim-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
-.dim-name { font-size: 14px; font-weight: 600; color: var(--text-title); }
-.dim-score { font-size: 22px; font-weight: 300; }
+.dim-name {
+  font-size: 14px;
+  font-weight: 600;
+  font-family: var(--font-serif);
+  color: var(--text-title);
+}
+.dim-score {
+  font-size: 22px;
+  font-weight: 700;
+  font-family: var(--font-serif);
+}
 .dim-bar {
   height: 6px;
   border-radius: 999px;

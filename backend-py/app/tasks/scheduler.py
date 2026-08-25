@@ -24,6 +24,33 @@ from app.services.report_generator import generate_monthly_report
 logger = logging.getLogger(__name__)
 
 
+def format_anomaly_message(analysis: dict) -> str:
+    """把异常检测结果格式化成人类可读的中文文案（替代 JSON 原文）。"""
+    anomalies = analysis.get("anomalies") or []
+    if not anomalies:
+        return "未发现异常消费"
+    lines = [f"检测到 {len(anomalies)} 笔异常消费："]
+    for a in anomalies:
+        t = a.get("type")
+        if t == "statistical_outlier":
+            lines.append(
+                f"· {a.get('occurred_at', '')} 一笔 ¥{a.get('amount', '?')} "
+                f"消费远超日常水平（均值 ¥{a.get('mean', '?')}）"
+            )
+        elif t == "duplicate_charge":
+            lines.append(
+                f"· 「{a.get('merchant', '未知商户')}」{a.get('window_days', 7)} 天内重复消费 ¥{a.get('amount', '?')}"
+            )
+        elif t == "spending_spike":
+            lines.append(
+                f"· {a.get('date', '')} 单日支出 ¥{a.get('amount', '?')}，"
+                f"是前日（¥{a.get('previous_amount', '?')}）的 {a.get('multiple', '?')} 倍"
+            )
+        else:
+            lines.append(f"· {json.dumps(a, ensure_ascii=False)}")
+    return "\n".join(lines)
+
+
 async def _all_user_ids() -> list[int]:
     async with AsyncSessionLocal() as session:
         return list((await session.scalars(select(User.id))).all())
@@ -51,11 +78,7 @@ async def run_anomaly_detection(settings: Settings) -> int:
                     user_id=user_id,
                     type="anomaly",
                     title="异常消费提醒",
-                    message=json.dumps(
-                        {"count": len(anomalies), "anomalies": anomalies},
-                        ensure_ascii=False,
-                        default=str,
-                    ),
+                    message=format_anomaly_message(analysis),
                     status="pending",
                 )
             )

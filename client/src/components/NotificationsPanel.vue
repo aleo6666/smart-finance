@@ -30,7 +30,7 @@
                 <span v-if="n.type" class="notif-type">{{ TYPE_MAP[n.type] || n.type }}</span>
                 <span v-if="!n.read" class="notif-badge">新</span>
               </div>
-              <p v-if="n.message" class="notif-msg">{{ n.message }}</p>
+              <p v-if="n.message" class="notif-msg">{{ formatMessage(n.message) }}</p>
               <div class="notif-time">{{ fmtTime(n.created_at) }}</div>
             </div>
             <div class="notif-actions">
@@ -79,6 +79,31 @@ function fmtTime(t) {
   if (Number.isNaN(d.getTime())) return String(t).slice(0, 16).replace('T', ' ')
   const pad = n => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+// 兼容历史 JSON 格式的异常提醒（后端已改中文文案，存量记录这里兜底格式化）
+function formatMessage(msg) {
+  if (!msg || typeof msg !== 'string' || msg[0] !== '{') return msg
+  let data
+  try {
+    data = JSON.parse(msg)
+  } catch {
+    return msg
+  }
+  if (!data || !Array.isArray(data.anomalies)) return msg
+  const lines = [`检测到 ${data.count ?? data.anomalies.length} 笔异常消费：`]
+  for (const a of data.anomalies) {
+    if (a.type === 'statistical_outlier') {
+      lines.push(`· ${a.occurred_at ?? ''} 一笔 ¥${a.amount ?? '?'} 消费远超日常水平（均值 ¥${a.mean ?? '?'}）`)
+    } else if (a.type === 'duplicate_charge') {
+      lines.push(`· 「${a.merchant ?? '未知商户'}」${a.window_days ?? 7} 天内重复消费 ¥${a.amount ?? '?'}`)
+    } else if (a.type === 'spending_spike') {
+      lines.push(`· ${a.date ?? ''} 单日支出 ¥${a.amount ?? '?'}，是前日（¥${a.previous_amount ?? '?'}）的 ${a.multiple ?? '?'} 倍`)
+    } else {
+      lines.push(`· ${JSON.stringify(a)}`)
+    }
+  }
+  return lines.join('\n')
 }
 
 onMounted(async () => {

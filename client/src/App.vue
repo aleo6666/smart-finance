@@ -257,6 +257,72 @@ onMounted(async () => {
   text-transform: uppercase;
 }
 
+/* ========== 剪纸 Phase 2：侧边栏细节强化 ========== */
+/* 侧边栏整体：极淡纸纹噪点 + 右侧纸边投影（一张纸贴在纸底上） */
+.sidebar {
+  background-color: var(--paper-card);
+  background-image:
+    radial-gradient(rgba(61, 47, 20, 0.028) 1px, transparent 1.3px),
+    radial-gradient(rgba(61, 47, 20, 0.02) 1px, transparent 1.3px);
+  background-size: 22px 22px, 38px 38px;
+  background-position: 0 0, 11px 14px;
+  box-shadow:
+    1px 0 0 var(--paper-edge),
+    12px 0 28px -10px rgba(61, 47, 20, 0.22),
+    4px 0 10px -4px rgba(61, 47, 20, 0.10);
+}
+
+/* 选中项：紫色剪纸片（上下锯齿边 + 切角 + 纸片投影 + 白色镂空内描边） */
+.sidebar-nav a.active {
+  background: var(--brand-purple);
+  color: #fff;
+  font-weight: 600;
+  border-radius: 2px;
+  clip-path: polygon(
+    0 0,
+    6% 2.5px, 12% 0, 18% 2.5px, 24% 0, 30% 2.5px, 36% 0, 42% 2.5px,
+    48% 0, 54% 2.5px, 60% 0, 66% 2.5px, 72% 0, 78% 2.5px, 84% 0, 90% 2.5px,
+    calc(100% - 9px) 0,
+    100% 9px,
+    100% 100%,
+    94% calc(100% - 2.5px), 88% 100%, 82% calc(100% - 2.5px), 76% 100%,
+    70% calc(100% - 2.5px), 64% 100%, 58% calc(100% - 2.5px), 52% 100%,
+    46% calc(100% - 2.5px), 40% 100%, 34% calc(100% - 2.5px), 28% 100%,
+    22% calc(100% - 2.5px), 16% 100%,
+    9px 100%,
+    0 calc(100% - 9px)
+  );
+  box-shadow:
+    inset 0 0 0 1.5px rgba(255, 255, 255, 0.38),
+    inset 0 2px 2px rgba(255, 255, 255, 0.22),
+    inset 0 -3px 5px rgba(24, 12, 96, 0.28);
+  filter:
+    drop-shadow(0 2px 2px rgba(40, 26, 140, 0.30))
+    drop-shadow(0 5px 8px rgba(61, 47, 20, 0.14));
+}
+
+/* 分组标题：朱砂红剪纸窗花碎片（锯齿菱形，clip-path） */
+.sidebar .sidebar-nav .nav-group::before {
+  width: 12px;
+  height: 12px;
+  background: var(--cinnabar);
+  clip-path: polygon(
+    50% 0, 60% 15%, 76% 8%, 80% 25%, 100% 34%, 90% 50%,
+    100% 66%, 80% 75%, 76% 92%, 60% 85%, 50% 100%, 40% 85%,
+    24% 92%, 20% 75%, 0 66%, 10% 50%, 0 34%, 20% 25%, 24% 8%, 40% 15%
+  );
+  opacity: 0.9;
+}
+
+/* 今日支出卡：双层纸片——底层露出 4px 纸边，上层投影加重 */
+.today-card {
+  box-shadow: var(--paper-shadow-lg);
+}
+.today-card::before {
+  transform: rotate(-0.7deg) translate(4px, 4px);
+  box-shadow: 0 1px 2px rgba(61, 47, 20, 0.08);
+}
+
 .reminder-panel .view-all {
   display: block;
   text-align: center;

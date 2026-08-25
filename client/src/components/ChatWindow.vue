@@ -2,6 +2,22 @@
   <div class="chat-container">
     <div class="chat-messages" ref="messagesEl">
       <div v-if="store.messages.length === 0 && !ocrPending" class="empty-state">
+        <!-- 剪纸窗花点缀（纯装饰） -->
+        <svg class="empty-ornament" viewBox="0 0 120 44" aria-hidden="true">
+          <g fill="#C4402B" opacity="0.85">
+            <path d="M60 6 C63 12 63 16 60 21 C57 16 57 12 60 6 Z"/>
+            <path d="M60 6 C63 12 63 16 60 21 C57 16 57 12 60 6 Z" transform="rotate(60 60 22)"/>
+            <path d="M60 6 C63 12 63 16 60 21 C57 16 57 12 60 6 Z" transform="rotate(120 60 22)"/>
+            <path d="M60 6 C63 12 63 16 60 21 C57 16 57 12 60 6 Z" transform="rotate(180 60 22)"/>
+            <path d="M60 6 C63 12 63 16 60 21 C57 16 57 12 60 6 Z" transform="rotate(240 60 22)"/>
+            <path d="M60 6 C63 12 63 16 60 21 C57 16 57 12 60 6 Z" transform="rotate(300 60 22)"/>
+          </g>
+          <circle cx="60" cy="22" r="4" fill="#C9A227"/>
+          <circle cx="22" cy="22" r="8" fill="none" stroke="#C9A227" stroke-width="2.5"/>
+          <rect x="19" y="19" width="6" height="6" fill="none" stroke="#C9A227" stroke-width="2"/>
+          <circle cx="98" cy="22" r="8" fill="none" stroke="#C9A227" stroke-width="2.5"/>
+          <rect x="95" y="19" width="6" height="6" fill="none" stroke="#C9A227" stroke-width="2"/>
+        </svg>
         <div class="empty-icon">💬</div>
         <p>开始记账吧！告诉我你今天花了多少钱~</p>
         <div class="quick-actions" style="justify-content: center; margin-top: 16px;">
@@ -341,13 +357,22 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* 语音输入按钮 */
+/* 空状态剪纸点缀 */
+.empty-ornament {
+  width: 120px;
+  height: 44px;
+  margin: 0 auto 4px;
+  display: block;
+}
+
+/* 语音输入按钮（纸片质感） */
 .btn-mic {
   width: 40px;
   height: 40px;
   border-radius: var(--radius);
-  border: 1px solid var(--border);
-  background: var(--bg-card);
+  border: 1px solid var(--paper-edge);
+  background: var(--paper-card);
+  box-shadow: var(--paper-shadow);
   color: var(--text);
   cursor: pointer;
   flex-shrink: 0;
@@ -365,6 +390,12 @@ onUnmounted(() => {
   background: var(--primary-soft);
   border-color: var(--primary-light);
   color: var(--primary);
+  transform: translateY(-1px);
+  box-shadow: var(--paper-shadow-lg);
+}
+.btn-mic:active:not(:disabled):not(.recording) {
+  transform: translateY(0);
+  box-shadow: var(--paper-shadow);
 }
 .btn-mic:disabled {
   opacity: 0.5;
@@ -424,14 +455,15 @@ onUnmounted(() => {
   text-align: center;
 }
 
-/* OCR 确认卡片 */
+/* OCR 确认卡片：白纸片 + 叠层投影 */
 .ocr-confirm-card {
-  background: #f8fafc;
-  border: 1px solid var(--border);
+  background: var(--paper-card);
+  border: 1px solid var(--paper-edge);
   border-radius: 12px;
   padding: 16px;
   margin-top: 4px;
   max-width: 520px;
+  box-shadow: var(--paper-shadow);
 }
 .ocr-header {
   font-size: 14px;
@@ -441,8 +473,8 @@ onUnmounted(() => {
 }
 .ocr-item {
   position: relative;
-  background: #fff;
-  border: 1px solid #e2e8f0;
+  background: #fdfaf6;
+  border: 1px solid var(--paper-edge);
   border-radius: 8px;
   padding: 10px 36px 10px 10px;
   margin-bottom: 8px;
@@ -455,13 +487,17 @@ onUnmounted(() => {
 .ocr-row:last-child { margin-bottom: 0; }
 .ocr-row input, .ocr-row select {
   padding: 5px 8px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--paper-edge);
   border-radius: 5px;
   font-size: 13px;
   outline: none;
-  background: #fff;
+  background: var(--paper-card);
+  box-shadow: inset 0 1px 2px rgba(61, 47, 20, 0.06);
 }
-.ocr-row input:focus, .ocr-row select:focus { border-color: var(--primary); }
+.ocr-row input:focus, .ocr-row select:focus {
+  border-color: var(--brand-purple);
+  box-shadow: inset 0 1px 2px rgba(61, 47, 20, 0.06), var(--ring);
+}
 .ocr-amount { width: 90px; }
 .ocr-cat { width: 80px; }
 .ocr-date { width: 130px; }

@@ -70,7 +70,7 @@ async def test_small_record_writes_directly_without_interrupt(db_session_factory
     )
     assert result.get("__interrupt__") is None, "小额直通不应触发 interrupt"
     assert "已记账" in result["messages"][-1].content
-    assert llm.calls == 1, "记账 workflow 应只调用 1 次 LLM（无 ReAct 循环）"
+    assert llm.calls == 0, "记账走确定性规则路径，不调用注入 LLM（无 ReAct 循环）"
     async with db_session_factory() as s:
         rows = (await s.scalars(select(Transaction).where(Transaction.user_id == 7))).all()
     assert len(rows) == 2  # seed + 午餐
@@ -104,7 +104,7 @@ async def test_large_record_interrupts_then_commits_on_confirm(db_session_factor
         config={"configurable": {"thread_id": "wf-large"}},
     )
     assert result.get("__interrupt__"), "大额写操作应触发 interrupt"
-    assert llm.calls == 1, "记账 workflow 触发确认时也只调 1 次 LLM"
+    assert llm.calls == 0, "记账走确定性规则路径，触发确认时不调用注入 LLM"
 
     resumed = await graph.ainvoke(
         Command(resume=True),
@@ -174,6 +174,33 @@ async def test_no_amount_goes_chat_not_record(db_session_factory) -> None:
     from app.agents.graph import classify_intent
 
     assert classify_intent("记一笔午餐") == "chat"
+
+
+@pytest.mark.asyncio
+async def test_rule_fallback_to_llm_extract(db_session_factory) -> None:
+    """多金额（规则层无法确定单笔）→ 降级 LLM 兜底提取，调用 1 次。
+
+    覆盖 record_draft 的分层：规则命中→0 次 LLM（test_small/large）；规则抓不出→LLM 兜底 1 次。
+    """
+    await _seed_category(db_session_factory, 7, "餐饮")
+    llm = _DraftLLM(
+        '{"type": "expense", "category": "餐饮", "amount": 25, "note": "午餐", "occurred_at": ""}'
+    )
+    graph = create_agent_graph(
+        model=llm,
+        tools=[create_create_record_tool(db_session_factory, _FakeSettings())],
+        sessions_factory=db_session_factory,
+    )
+    result = await graph.ainvoke(
+        {"messages": [HumanMessage(content="午餐花了25 晚餐吃了30")], "user_id": 7},
+        config={"configurable": {"thread_id": "wf-llm-fb"}},
+    )
+    # 规则层遇多金额返回 None → 降级 LLM 兜底（调用 1 次）；小额直通不 interrupt
+    assert llm.calls == 1, "多金额规则不命中，应降级 LLM 兜底调用 1 次"
+    assert result.get("__interrupt__") is None, "小额直通不应触发 interrupt"
+    async with db_session_factory() as s:
+        rows = (await s.scalars(select(Transaction).where(Transaction.user_id == 7))).all()
+    assert len(rows) == 2  # seed + 落库的一条
 
 
 class _FakeSettings:

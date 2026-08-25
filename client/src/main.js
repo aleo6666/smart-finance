@@ -33,7 +33,7 @@ const router = createRouter({
 
 // 全局路由守卫：登录态校验（替代 App.vue 内的组件级 watch）
 router.beforeEach((to) => {
-  const token = localStorage.getItem('auth_token')
+  const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token')
   if (to.meta.requiresAuth && !token) {
     return { name: 'login', query: { redirect: to.fullPath } }
   }

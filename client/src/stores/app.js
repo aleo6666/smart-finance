@@ -17,7 +17,7 @@ export const useAppStore = defineStore('app', {
     user: null,
     ledgers: [],
     selectedLedgerId: null,
-    token: localStorage.getItem('auth_token') || null
+    token: localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token') || null
   }),
 
   getters: {
@@ -30,9 +30,9 @@ export const useAppStore = defineStore('app', {
 
   actions: {
     // ====== 登录 ======
-    setToken(token) {
+    setToken(token, remember = true) {
       this.token = token
-      api.setToken(token)
+      api.setToken(token, remember)
     },
 
     async loginByWechatMini(code) {
