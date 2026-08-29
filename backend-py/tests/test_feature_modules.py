@@ -2,6 +2,8 @@
 subscriptions/tax/insurance/health-score/notifications/family/privacy)
 and the extended auth endpoints (refresh/logout/delete-account)."""
 
+from datetime import date, timedelta
+
 
 def _register(client, email="user@example.com", password="secret123"):
     response = client.post(
@@ -160,7 +162,7 @@ def test_subscriptions_crud_and_overview(api_client) -> None:
             "category": "娱乐",
             "amount": "25.00",
             "billing_cycle": "monthly",
-            "next_billing_date": "2026-08-25",
+            "next_billing_date": str(date.today() + timedelta(days=10)),
         },
         headers=headers,
     )

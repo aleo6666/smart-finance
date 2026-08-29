@@ -53,10 +53,40 @@ async def chat(
     #    用户确认/取消上一笔待确认记账 → Command(resume=True/False) 恢复
     text = (payload.message or "").strip()
     resume_value: bool | None = None
-    if any(kw in text for kw in ("确认", "确认记账", "继续", "同意", "好的", "可以")):
-        resume_value = True
-    elif any(kw in text for kw in ("取消", "放弃", "不用了", "不要", "不记")):
-        resume_value = False
+
+    # 先查该 thread 是否有未决 interrupt（上一笔待确认记账），一次状态读取。
+    # 只有确实存在未决确认时，确认/取消词才触发 resume；否则一律按普通消息处理，
+    # 避免：① 无 interrupt 时 Command(resume=True) 报错；② 「确定/确认」等确认词
+    # 被误当成新记账文本解析（2026-08-29 生产反馈：「确定」不在原词表 → 旧确认被
+    # 当成"转移话题"取消 + 新消息报"我没听懂金额"）。
+    snapshot = None
+    try:
+        snapshot = await request.app.state.chat_agent.aget_state(
+            config={"configurable": {"thread_id": str(user_id)}}
+        )
+    except Exception:
+        # 状态检查失败不阻塞主流程（视为无未决确认）
+        snapshot = None
+
+    has_pending = snapshot is not None and (
+        getattr(snapshot, "interrupts", None)
+        or (getattr(snapshot, "next", None) and tuple(snapshot.next))
+    )
+
+    if has_pending:
+        if any(kw in text for kw in ("确认", "确定", "继续", "同意", "好的", "可以", "是的")):
+            resume_value = True
+        elif any(kw in text for kw in ("取消", "放弃", "不用了", "不要", "不记")):
+            resume_value = False
+        else:
+            # 用户转移话题 = 放弃旧确认：先取消（防旧确认重放），再正常处理新消息
+            try:
+                await request.app.state.chat_agent.ainvoke(
+                    Command(resume=False),
+                    config={"configurable": {"thread_id": str(user_id)}},
+                )
+            except Exception:
+                pass
 
     invoke_input: dict[str, Any] | Command = {
         "messages": messages,
@@ -69,21 +99,6 @@ async def chat(
     }
     if resume_value is not None:
         invoke_input = Command(resume=resume_value)
-    else:
-        # 非确认/取消词的新消息：若该 thread 有未决 interrupt（上一笔待确认记账），
-        # 先自动取消旧确认（用户转移话题 = 放弃），再正常处理新消息，避免旧状态重放
-        try:
-            snapshot = await request.app.state.chat_agent.aget_state(
-                config={"configurable": {"thread_id": str(user_id)}}
-            )
-            if snapshot is not None and (snapshot.interrupts or (snapshot.next and tuple(snapshot.next))):
-                await request.app.state.chat_agent.ainvoke(
-                    Command(resume=False),
-                    config={"configurable": {"thread_id": str(user_id)}},
-                )
-        except Exception:
-            # 状态检查失败不阻塞主流程
-            pass
     result = await request.app.state.chat_agent.ainvoke(
         invoke_input,
         config={"configurable": {"thread_id": str(user_id)}},
