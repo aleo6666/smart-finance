@@ -170,6 +170,50 @@ async def test_cancel_word_resumes_with_false(client_and_agent) -> None:
 
 
 @pytest.mark.asyncio
+async def test_confirm_action_button_resumes(client_and_agent) -> None:
+    """前端按钮「确认记账」：confirm_action=confirm 直接 resume，零文本识别。"""
+    client, token, agent = client_and_agent
+    await _trigger_interrupt(client, token)
+    resp = await client.post(
+        "/api/chat",
+        json={"message": "确认记账", "confirm_action": "confirm"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["data"]["message"] == "已确认记账：居住 5000.00 元"
+    assert agent.last_input.resume is True
+
+
+@pytest.mark.asyncio
+async def test_confirm_action_cancel_button_resumes(client_and_agent) -> None:
+    """前端按钮「取消」：confirm_action=cancel 直接 resume(False)。"""
+    client, token, agent = client_and_agent
+    await _trigger_interrupt(client, token)
+    resp = await client.post(
+        "/api/chat",
+        json={"message": "取消", "confirm_action": "cancel"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["data"]["message"] == "已取消该笔记账。"
+    assert agent.last_input.resume is False
+
+
+@pytest.mark.asyncio
+async def test_confirm_action_without_pending_returns_hint(client_and_agent) -> None:
+    """无待确认记账时点按钮 → 提示"当前没有待确认的记账"，不执行空 resume。"""
+    client, token, agent = client_and_agent
+    resp = await client.post(
+        "/api/chat",
+        json={"message": "确认记账", "confirm_action": "confirm"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["data"]["message"] == "当前没有待确认的记账。"
+    assert agent.last_input is None  # 未触发 agent 调用
+
+
+@pytest.mark.asyncio
 async def test_confirm_word_without_pending_is_plain_message(client_and_agent) -> None:
     """无未决 interrupt 时，确认词按普通消息处理，不触发 Command(resume)。"""
     client, token, agent = client_and_agent

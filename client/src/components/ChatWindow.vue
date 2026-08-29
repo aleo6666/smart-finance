@@ -30,6 +30,22 @@
 
       <MessageBubble v-for="(msg, i) in store.messages" :key="i" :msg="msg" />
 
+      <!-- 记账人工确认卡片：按钮触发（confirm_action 显式参数），不依赖文本识别 -->
+      <div v-if="showConfirmCard" class="message assistant">
+        <div class="avatar">🤖</div>
+        <div class="confirm-card">
+          <div class="confirm-title">✋ 请确认这笔记账</div>
+          <div class="confirm-actions">
+            <button class="btn btn-primary btn-sm" @click="confirmRecord(true)" :disabled="store.loading">
+              ✓ 确认记账
+            </button>
+            <button class="btn btn-outline btn-sm" @click="confirmRecord(false)" :disabled="store.loading">
+              取消
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- OCR 确认表单 -->
       <div v-if="ocrPending" class="message assistant">
         <div class="avatar">🤖</div>
@@ -91,7 +107,7 @@
 </template>
 
 <script setup>
-import { ref, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import { useAppStore } from '../stores/app.js'
 import MessageBubble from './MessageBubble.vue'
 import { api } from '../utils/api.js'
@@ -103,6 +119,19 @@ const inputEl = ref(null)
 const fileInput = ref(null)
 
 const categories = ['餐饮', '交通', '购物', '娱乐', '住房', '医疗', '教育', '通讯', '礼物', '其他']
+
+// 记账人工确认卡片：最后一条消息是 assistant 且带 pendingConfirm 时显示
+const showConfirmCard = computed(() => {
+  if (store.loading || ocrPending.value) return false
+  const last = store.messages[store.messages.length - 1]
+  return !!(last && last.role === 'assistant' && last.pendingConfirm)
+})
+
+async function confirmRecord(confirm) {
+  const text = confirm ? '确认记账' : '取消'
+  await store.sendMessage(text, { confirm_action: confirm ? 'confirm' : 'cancel' })
+  scrollToBottom()
+}
 
 // OCR 确认状态
 const ocrPending = ref(false)
@@ -453,6 +482,34 @@ onUnmounted(() => {
   animation: fadeIn 0.2s ease;
   max-width: 86vw;
   text-align: center;
+}
+
+/* 记账人工确认卡片：白纸片 + 叠层投影（与 OCR 确认卡同风格） */
+.confirm-card {
+  background: var(--paper-card);
+  border: 1px solid var(--paper-edge);
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin-top: 4px;
+  max-width: 520px;
+  box-shadow: var(--paper-shadow);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.confirm-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.confirm-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+.confirm-actions .btn {
+  min-width: 88px;
 }
 
 /* OCR 确认卡片：白纸片 + 叠层投影 */

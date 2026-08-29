@@ -28,6 +28,9 @@ router = APIRouter(prefix="/api", tags=["chat"])
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1)
     ledger_id: int | None = Field(default=None, gt=0)
+    # 显式按钮确认参数（前端点「确认记账/取消」按钮触发）：优先于关键词识别，
+    # 避免用户口语（确定/确认/好的…）无法被文本词表覆盖的问题（2026-08-29）
+    confirm_action: str | None = Field(default=None)
 
 
 @router.post("/chat")
@@ -73,7 +76,24 @@ async def chat(
         or (getattr(snapshot, "next", None) and tuple(snapshot.next))
     )
 
-    if has_pending:
+    # 显式按钮确认（confirm_action 参数）优先于关键词识别：
+    # 前端点「确认记账/取消」时带该参数，后端直接 resume，不解析文本
+    if payload.confirm_action in ("confirm", "cancel"):
+        if has_pending:
+            resume_value = payload.confirm_action == "confirm"
+        else:
+            # 点了按钮但已无待确认记账（如刷新/换话题后）→ 给出提示，不执行空 resume
+            return {
+                "success": True,
+                "data": {
+                    "message": "当前没有待确认的记账。",
+                    "source": "langgraph",
+                    "intent": "chat",
+                    "tools": [],
+                    "sources": [],
+                },
+            }
+    elif has_pending:
         if any(kw in text for kw in ("确认", "确定", "继续", "同意", "好的", "可以", "是的")):
             resume_value = True
         elif any(kw in text for kw in ("取消", "放弃", "不用了", "不要", "不记")):

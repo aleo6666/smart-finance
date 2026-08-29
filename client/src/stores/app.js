@@ -76,12 +76,12 @@ export const useAppStore = defineStore('app', {
     },
 
     // ====== 聊天 ======
-    async sendMessage(text) {
+    async sendMessage(text, options = {}) {
       this.messages.push({ role: 'user', content: text, time: new Date() })
       this.loading = true
 
       try {
-        const res = await api.chat(text, { ledgerId: this.selectedLedgerId })
+        const res = await api.chat(text, { ledgerId: this.selectedLedgerId, ...options })
         const data = res.data
 
         this.messages.push({
@@ -90,6 +90,9 @@ export const useAppStore = defineStore('app', {
           intent: data.intent,
           data: data.data,
           evidence: data.evidence,
+          // 待人工确认：ChatWindow 渲染「确认记账/取消」按钮，点击时以
+          // confirm_action 显式参数重发（不依赖文本关键词识别）
+          pendingConfirm: !!data.pending_confirm,
           time: new Date()
         })
 
