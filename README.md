@@ -1,55 +1,46 @@
 # Smart Finance · AI-Native 智能财务顾问
 
 [![部署状态](https://img.shields.io/badge/status-online-brightgreen)](http://8.163.84.206)
-[![Node.js](https://img.shields.io/badge/node-22+-339933)](https://nodejs.org)
-[![LangGraph](https://img.shields.io/badge/LangGraph-1.x-blue)](https://github.com/langchain-ai/langgraphjs)
-[![测试](https://img.shields.io/badge/tests-614%2F614-brightgreen)](#)
+[![Python](https://img.shields.io/badge/Python-3.11-3776AB)](https://www.python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688)](https://fastapi.tiangolo.com)
+[![LangGraph](https://img.shields.io/badge/LangGraph-1.x-blue)](https://github.com/langchain-ai/langgraph)
+[![测试](https://img.shields.io/badge/tests-329%2F329-brightgreen)](#)
 [![许可证](https://img.shields.io/badge/license-Unlicensed-red)](#)
 
-基于 LangGraph 的 AI-Native 智能财务顾问——从自然语言记账到财务健康评估，从四层记忆到三级安全防线，从本地开发到 Docker 灰度部署的全链路实现。
+基于 LangGraph 的 AI-Native 智能财务顾问——从自然语言记账到财务健康评估，从**受约束自主体 + 反思闭环 + 证据链**到四类跨会话记忆，从本地开发到 Docker 灰度部署的全链路实现。
 
 线上地址：https://lisheng666.xyz
-
-> 📖 深度架构文档见 [README_DEEP.md](./README_DEEP.md)
 
 ---
 
 ## 功能概览
 
 ### 智能记账
-- 自然语言输入，自动识别金额、分类、日期
-- 多 Agent 自动收支识别，LLM 大额二次确认
-- 支持多账本管理（前端 CRUD）
+- 自然语言输入，Hybrid 意图路由（LLM + 确定性关键词双通道，低置信反问澄清）
+- LLM 提取凭证要素 → 确定性确认策略（小额直通 / 大额与新分类人工确认）
+- 写操作经 LangGraph interrupt 挂起，用户显式确认后落库；幂等键防重复记账
 
 ### 账单查询与分析
 - 今日/本月/上月/分类明细/最大单笔/平均消费
 - 月度报表、分类占比、趋势分析
-- RAG 语义检索（Qdrant 向量库）
+- RAG 语义检索（Qdrant 向量库 + 混合检索）
 
-### 🆕 财务顾问
-- **财务健康评估**：储蓄率、收支平衡、预算执行率、消费结构
-- **财务健康评分**：0-100 分综合评估（5 维度加权）
-- **目标规划**：储蓄目标 / 大额消费计划可行性分析
-- **深度财务分析**：LLM 结构化解读（超支分类 / 异常提示 / 下月规划建议），Schema 约束 + 免责声明
-- **个性化建议**：基于消费模式的结构化改进建议
+### 🆕 智能财务顾问（分析师）
+- **受约束 ReAct 循环**：模型自主决定「再取数 or 给结论」，最多 5 轮（`analyst_loop`）
+- **反思闭环（Critic）**：生成结论后由审计模型自检——答非所问 / 超出数据推断 / 空泛套话将被打回重写（最多 2 轮），全程 `critique_log` 可追溯
+- **证据链校验**：分析中每个数字必须来自真实取数结果（`dataset_refs`），无据句子整句丢弃，模型无法捏造
+- 财务健康评分（5 维度）、目标规划、情景推演、月度体检
 
 ### Agent 架构
-- LangGraph StateGraph 编排，12 节点 + 条件路由
-- 四层记忆：会话元数据 / 长期记忆 / 近期摘要 / 滑动窗口
-- 确定性领域编排：LLM 决策 + 纯函数计算（预算执行 / 环比 / 占比 / 趋势）
-- 财务顾问工具链：健康评分 / 目标规划（确定性）+ 深度分析节点（结构化输出）
-- 灰度架构：Feature Flag + 哈希分桶 + 秒级回滚
+- LangGraph 状态机：Hybrid 意图路由 → 记账确定性工作流 / 分析 ReAct 循环 / 对话注入 CFP 真实数据
+- 长期记忆：规则 / 目标 / 偏好三类事实 + 向量化检索（Qdrant + MySQL），工具显式写入需确认
+- 受约束自主性：模型只拥有工具执行权与决策权，所有写操作经确认、所有数字经证据校验；工具调用经 Zod Schema 校验并强制注入服务端 user_id 隔离
+- 确定性领域计算：预算执行 / 环比 / 占比 / 评分等纯函数实现，LLM 不做算术
 
-### 安全控制
-- JWT 鉴权 + Redis 频率限制
-- SQL AST 语法守卫（node-sql-parser 白名单 + LIMIT 强制）
-- 敏感操作 LangGraph interrupt 确认
-- 只读管理 SQL 独立数据库账号
-
-### 认证方式
-
-- **邮箱 + 密码**：简单注册/登录，无需验证码，注册即用
-- **开发环境**：自动跳过 SMTP 验证，本地开箱即用
+### 安全控制（Agentic Security）
+- JWT 鉴权 + 工具级授权（每个工具强制注入 user_id，模型无法伪造）
+- 敏感写操作 human-in-the-loop（LangGraph interrupt 人工确认）
+- 幂等键 + 确定性写入执行器防重复提交
 
 ---
 
@@ -57,28 +48,27 @@
 
 | 层级 | 技术 |
 |------|------|
-| Agent 框架 | LangChain.js + LangGraph.js |
-| 后端 | Node.js 22+ / Express / Knex |
-| 数据库 | MySQL 8 / Redis Stack 7.4 (RedisJSON) / Qdrant |
-| 前端 | Vue 3 / Vite / Pinia / ECharts |
-| 验证 | Zod / node-sql-parser |
+| Agent 框架 | LangGraph 1.x + LangChain Tools（Python） |
+| 后端 | FastAPI + SQLAlchemy 2.0（Async） |
+| 数据库 | MySQL 8.4 / Qdrant（向量检索） |
+| 前端 | Vue 3 / Vite |
+| 模型 | DeepSeek V4（对话/分析/审计）|
 | 部署 | Docker Compose / Nginx / 阿里云 ECS |
-| 模型 | DeepSeek V4 Pro / LM Studio (Qwen) |
-| 测试 | Node Test Runner + 评估框架 |
+| 测试 | pytest 329 用例（46 文件） |
 
 ---
 
 ## 快速开始
 
 ```bash
-# 1. 配置
-cp .env.example .env.local
+# 1. 配置（backend-py）
+cp backend-py/.env.example backend-py/.env.local
 
-# 2. 启动
+# 2. 启动（MySQL + Qdrant + 后端）
 docker compose up -d
 
 # 3. 验证
-curl http://localhost:3000/api/health/ready
+curl http://localhost:8000/api/health/ready
 ```
 
 ---
@@ -86,15 +76,9 @@ curl http://localhost:3000/api/health/ready
 ## 开发命令
 
 ```bash
-npm run dev:server          # 后端开发
-npm run dev:client          # 前端开发
-
-cd server
-
-npm test                    # 全量测试 (615 tests)
-npm run test:agent          # Agent 测试
-npm run eval                # Agent 评估 (22 用例)
-npm run test:eval -- --test-name-pattern="advisor"  # 财务顾问评估
+cd backend-py
+./.venv/Scripts/python.exe -m pytest tests/ -q        # 全量 329 用例（约 3 分钟）
+./.venv/Scripts/python.exe -m pytest tests/test_analyst_loop.py tests/test_critic_integration.py -q   # 分析+自检专项
 ```
 
 ---
@@ -102,42 +86,22 @@ npm run test:eval -- --test-name-pattern="advisor"  # 财务顾问评估
 ## 项目结构
 
 ```text
-server/src/agent/
-├── graph.js              # StateGraph 构建 + 路由
-├── state.js              # AgentState Schema (Zod)
-├── prompts.js            # System Prompt（财务顾问人格）
-├── runtime.js            # Trusted Runtime Context
-├── tools/
-│   ├── domainTools.js    # 查询/记账/预算
-│   ├── advisorTool.js    # 🆕 财务顾问（健康评估+目标规划）
-│   ├── memoryTools.js    # 长期记忆
-│   ├── adminSqlTool.js   # 管理 SQL（SQL Guard 保护）
-│   ├── knowledgeTool.js  # 知识库检索
-│   └── ocrTool.js        # PaddleOCR
-├── memory/               # 四层记忆
-├── nodes/                # 图节点（12 个）
-├── security/sqlGuard.js  # SQL AST 三层守卫
-├── eval/                 # 🆕 Agent 评估框架
-│   ├── framework.js      # 评估运行器 + 报告生成
-│   └── cases.js          # 22 个评估用例 (7 维度)
-└── utils/                # jsonRepair / textToolCalls
+backend-py/app/
+├── agents/                 # LangGraph 状态机
+│   ├── graph.py            # 图构建 + 路由 + 工具循环
+│   ├── nodes/
+│   │   ├── intent_router.py    # Hybrid 意图路由（LLM+规则，低置信澄清）
+│   │   ├── analyst_loop.py     # 分析师 ReAct 循环 + Critic 反思闭环 + 证据链
+│   │   ├── record_draft.py     # 记账提取 + 确定性工作流
+│   │   ├── cfp_node.py         # 财务顾问上下文注入
+│   │   ├── memory_node.py      # 跨会话长期记忆
+│   │   └── confirm_policy.py   # 写操作确认策略
+│   └── tools/              # 记账/查询/分析/知识库/OCR 工具（Zod 校验+user_id 注入）
+├── api/                    # FastAPI 路由（20+ 业务域）
+├── core/                   # 配置 / LLM 客户端
+├── models/                 # SQLAlchemy
+└── tests/                  # 329 用例
 ```
-
----
-
-## Agent 评估
-
-`npm run eval` 运行 22 个确定性的 Agent 评估用例：
-
-| 维度 | 用例数 | 说明 |
-|------|--------|------|
-| record | 4 | 智能记账准确率 |
-| query | 3 | 账单查询正确性 |
-| analysis | 2 | 消费分析 |
-| budget | 3 | 预算管理（含超支检测） |
-| safety | 4 | 安全防护（拒绝越权） |
-| memory | 2 | 记忆确认流 |
-| routing | 4 | 路由决策 |
 
 ---
 
