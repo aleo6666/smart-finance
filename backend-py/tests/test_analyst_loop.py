@@ -9,7 +9,7 @@ import asyncio
 import json
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.tools import tool
 
 from app.agents.graph import classify_intent, create_agent_graph
@@ -200,3 +200,264 @@ async def test_analysis_intent_routes_to_analyst_loop_in_graph() -> None:
     assert result["intent"] == "analysis"
     assert result["analysis"] == "请补充数据后再做详细分析。"
     assert result["messages"][-1].content == "请补充数据后再做详细分析。"
+
+
+class DispatchModel:
+    """按 SystemMessage 内容分发：批判者 prompt → 批评 JSON；分析师 prompt → 分析 JSON。"""
+
+    def __init__(
+        self, analysis_responses: list[str], critic_responses: list[str]
+    ) -> None:
+        self.analysis_responses = list(analysis_responses)
+        self.critic_responses = list(critic_responses)
+        self.analysis_calls: list[list[object]] = []
+        self.critic_calls: list[list[object]] = []
+
+    async def ainvoke(self, messages: list[object]) -> AIMessage:
+        system = next(
+            (
+                str(message.content)
+                for message in messages
+                if isinstance(message, SystemMessage)
+            ),
+            "",
+        )
+        if "批判" in system or "审计员" in system:
+            self.critic_calls.append(messages)
+            return AIMessage(content=self.critic_responses.pop(0))
+        self.analysis_calls.append(messages)
+        return AIMessage(content=self.analysis_responses.pop(0))
+
+
+# ---------------- Critic / 反思闭环（任务 B：T1-T7） ----------------
+
+@pytest.mark.asyncio
+async def test_critic_pass_outputs_and_logs() -> None:
+    model = DispatchModel(
+        analysis_responses=[
+            '{"final": false, "tool": "get_ratio_analysis", "args": {}}',
+            '{"final": true, "analysis": "你的储蓄率为 20.00%。"}',
+        ],
+        critic_responses=['{"pass": true, "issues": [], "suggestion": ""}'],
+    )
+    node = create_analyst_loop_node(
+        model=model,
+        analysis_tools=[get_ratio_analysis],
+        tool_timeout=30.0,
+        analyst_max_iterations=5,
+        critic_model=model,
+        critic_max_rounds=2,
+    )
+
+    result = await node(
+        {
+            "messages": [HumanMessage(content="分析我的财务状况")],
+            "user_id": 7,
+            "ledger_id": None,
+        }
+    )
+
+    assert result["analysis"] == "你的储蓄率为 20.00%。"
+    assert result["used_tools"] == ["get_ratio_analysis"]
+    assert result["critique_log"] == [
+        {"round": 1, "pass": True, "issues": [], "suggestion": ""}
+    ]
+    assert result["messages"][-1].content == "你的储蓄率为 20.00%。"
+
+
+@pytest.mark.asyncio
+async def test_critic_fail_then_fix() -> None:
+    model = DispatchModel(
+        analysis_responses=[
+            '{"final": false, "tool": "get_ratio_analysis", "args": {}}',
+            '{"final": true, "analysis": "你的财务很健康。"}',
+            '{"final": true, "analysis": "你的储蓄率为 20.00%。"}',
+        ],
+        critic_responses=[
+            '{"pass": false, "issues": ["结论缺少具体数据"], "suggestion": "引用储蓄率数字"}',
+            '{"pass": true, "issues": [], "suggestion": ""}',
+        ],
+    )
+    node = create_analyst_loop_node(
+        model=model,
+        analysis_tools=[get_ratio_analysis],
+        tool_timeout=30.0,
+        analyst_max_iterations=5,
+        critic_model=model,
+        critic_max_rounds=2,
+    )
+
+    result = await node(
+        {
+            "messages": [HumanMessage(content="分析我的财务状况")],
+            "user_id": 7,
+            "ledger_id": None,
+        }
+    )
+
+    assert result["analysis"] == "你的储蓄率为 20.00%。"
+    assert len(result["critique_log"]) == 2
+    assert result["critique_log"][0]["pass"] is False
+    assert result["critique_log"][1]["pass"] is True
+
+
+@pytest.mark.asyncio
+async def test_critic_fail_exhausted() -> None:
+    model = DispatchModel(
+        analysis_responses=[
+            '{"final": false, "tool": "get_ratio_analysis", "args": {}}',
+            '{"final": true, "analysis": "你的储蓄率为 20.00%。"}',
+            '{"final": true, "analysis": "你的储蓄率为 20.00%。"}',
+        ],
+        critic_responses=[
+            '{"pass": false, "issues": ["未覆盖负债率"], "suggestion": "补充负债率分析"}',
+            '{"pass": false, "issues": ["未覆盖负债率"], "suggestion": "补充负债率分析"}',
+        ],
+    )
+    node = create_analyst_loop_node(
+        model=model,
+        analysis_tools=[get_ratio_analysis],
+        tool_timeout=30.0,
+        analyst_max_iterations=5,
+        critic_model=model,
+        critic_max_rounds=2,
+    )
+
+    result = await node(
+        {
+            "messages": [HumanMessage(content="分析我的财务状况")],
+            "user_id": 7,
+            "ledger_id": None,
+        }
+    )
+
+    assert result["analysis"] == "你的储蓄率为 20.00%。"
+    assert len(result["critique_log"]) == 2
+    assert all(entry["pass"] is False for entry in result["critique_log"])
+
+
+@pytest.mark.asyncio
+async def test_critic_exception_falls_through() -> None:
+    class _RaisingCritic:
+        async def ainvoke(self, messages: list[object]) -> AIMessage:
+            raise RuntimeError("critic down")
+
+    model = ScriptedModel(
+        [
+            '{"final": false, "tool": "get_ratio_analysis", "args": {}}',
+            '{"final": true, "analysis": "你的储蓄率为 20.00%。"}',
+        ]
+    )
+    node = create_analyst_loop_node(
+        model=model,
+        analysis_tools=[get_ratio_analysis],
+        tool_timeout=30.0,
+        analyst_max_iterations=5,
+        critic_model=_RaisingCritic(),
+        critic_max_rounds=2,
+    )
+
+    result = await node(
+        {
+            "messages": [HumanMessage(content="分析我的财务状况")],
+            "user_id": 7,
+            "ledger_id": None,
+        }
+    )
+
+    assert result["analysis"] == "你的储蓄率为 20.00%。"
+    assert result["critique_log"][0]["round"] == 1
+    assert "error" in result["critique_log"][0]
+
+
+@pytest.mark.asyncio
+async def test_critic_non_json_falls_through() -> None:
+    model = DispatchModel(
+        analysis_responses=[
+            '{"final": false, "tool": "get_ratio_analysis", "args": {}}',
+            '{"final": true, "analysis": "你的储蓄率为 20.00%。"}',
+        ],
+        critic_responses=["这不是 JSON"],
+    )
+    node = create_analyst_loop_node(
+        model=model,
+        analysis_tools=[get_ratio_analysis],
+        tool_timeout=30.0,
+        analyst_max_iterations=5,
+        critic_model=model,
+        critic_max_rounds=2,
+    )
+
+    result = await node(
+        {
+            "messages": [HumanMessage(content="分析我的财务状况")],
+            "user_id": 7,
+            "ledger_id": None,
+        }
+    )
+
+    assert result["analysis"] == "你的储蓄率为 20.00%。"
+    assert "error" in result["critique_log"][0]
+
+
+@pytest.mark.asyncio
+async def test_critic_rule_force_fail_no_refs_numbers() -> None:
+    model = DispatchModel(
+        analysis_responses=[
+            '{"final": false, "tool": "get_ratio_analysis", "args": {}}',
+            '{"final": true, "analysis": "你的净资产为 999999.00 元。"}',
+            '{"final": true, "analysis": "你的储蓄率为 20.00%。"}',
+        ],
+        critic_responses=[
+            '{"pass": true, "issues": [], "suggestion": ""}',
+            '{"pass": true, "issues": [], "suggestion": ""}',
+        ],
+    )
+    node = create_analyst_loop_node(
+        model=model,
+        analysis_tools=[get_ratio_analysis],
+        tool_timeout=30.0,
+        analyst_max_iterations=5,
+        critic_model=model,
+        critic_max_rounds=2,
+    )
+
+    result = await node(
+        {
+            "messages": [HumanMessage(content="分析我的财务状况")],
+            "user_id": 7,
+            "ledger_id": None,
+        }
+    )
+
+    assert result["analysis"] == "你的储蓄率为 20.00%。"
+    assert result["critique_log"][0]["pass"] is False
+    assert "结论未引用任何真实数据" in result["critique_log"][0]["issues"]
+
+
+@pytest.mark.asyncio
+async def test_no_critic_keeps_old_behavior() -> None:
+    model = ScriptedModel(
+        [
+            '{"final": false, "tool": "get_ratio_analysis", "args": {}}',
+            '{"final": true, "analysis": "你的储蓄率为 20.00%。"}',
+        ]
+    )
+    node = create_analyst_loop_node(
+        model=model,
+        analysis_tools=[get_ratio_analysis],
+        tool_timeout=30.0,
+        analyst_max_iterations=5,
+    )
+
+    result = await node(
+        {
+            "messages": [HumanMessage(content="分析我的财务状况")],
+            "user_id": 7,
+            "ledger_id": None,
+        }
+    )
+
+    assert "critique_log" not in result
+    assert result["analysis"] == "你的储蓄率为 20.00%。"
+    assert len(model.calls) == 2

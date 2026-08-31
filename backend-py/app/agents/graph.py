@@ -213,6 +213,8 @@ def create_agent_graph(
     tool_timeout: float = 30.0,
     analyst_max_iterations: int = 5,
     analysis_tools: list[BaseTool] | None = None,
+    critic_model: Any | None = None,
+    analyst_critic_max_rounds: int = 2,
     cfp_context_provider: Callable[[int], Awaitable[dict]] | None = None,
     memory_processor: Callable[[AgentState], Awaitable[dict[str, Any]]] | None = None,
     pending_write_executor: Callable[[dict[str, Any]], Awaitable[str]] | None = None,
@@ -226,6 +228,8 @@ def create_agent_graph(
         analysis_tools=analysis_tools,
         tool_timeout=tool_timeout,
         analyst_max_iterations=analyst_max_iterations,
+        critic_model=critic_model,
+        critic_max_rounds=analyst_critic_max_rounds,
     )
     record_draft = create_record_draft_node(model, tool_timeout)
 
@@ -668,6 +672,8 @@ def create_default_agent(
         tool_timeout=app_settings.tool_timeout,
         analyst_max_iterations=app_settings.analyst_max_iterations,
         analysis_tools=analysis_tools,
+        critic_model=agent_model,
+        analyst_critic_max_rounds=app_settings.analyst_critic_max_rounds or 2,
         cfp_context_provider=provide_cfp_context,
         memory_processor=memory_processor,
         pending_write_executor=execute_pending_write,

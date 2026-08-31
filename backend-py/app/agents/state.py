@@ -33,4 +33,5 @@ class AgentState(TypedDict, total=False):
     intent_method: str  # 识别方法：rule / llm
     intent_subtype: str  # LLM 细分：expense/income/transactions/health...
     analysis: str  # 分析路径外置输出字段（不进 messages，防上下文膨胀）
+    critique_log: list[dict[str, Any]]  # 分析师自检（critic）轮次记录：{round, pass, issues, suggestion} 或 {round, error}
     record_draft: dict[str, Any] | None  # 记账 workflow 草稿 {type, category, amount, note, occurred_at}

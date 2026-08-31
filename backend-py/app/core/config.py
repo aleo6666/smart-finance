@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     rag_max_context_chars: int = Field(default=12000, ge=1000)
     agent_max_iterations: int = Field(default=8, ge=1, le=32)
     analyst_max_iterations: int = Field(default=5, ge=1, le=10)
+    analyst_critic_max_rounds: int = Field(default=2, ge=1, le=5)  # 分析师自检（critic）打回轮次上限
     memory_auto_ingest: bool = True
     session_history_limit: int = Field(default=6, ge=1)  # 滑动窗口注入条数（3 轮对话：省 token 降噪音）
     summary_threshold: int = Field(default=20, ge=1)  # 触发滚动摘要的消息数阈值
