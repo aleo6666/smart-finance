@@ -51,7 +51,7 @@
 |------|------|
 | Agent 框架 | LangGraph 1.x + LangChain Tools（Python） |
 | 后端 | FastAPI + SQLAlchemy 2.0（Async） |
-| 数据库 | MySQL 8.4 / Qdrant（向量检索） |
+| 数据库 | MySQL 8.4（生产）/ SQLite（测试）/ Qdrant（向量检索） |
 | 前端 | Vue 3 / Vite |
 | 模型 | DeepSeek V4（对话/分析/审计）|
 | 部署 | Docker Compose / Nginx / 阿里云 ECS |
