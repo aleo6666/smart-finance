@@ -201,3 +201,94 @@ async def test_financial_overview_explains_missing_fixed_expenses(
     metric = result["metrics"]["free_savings_rate"]
     assert metric["value"] is None
     assert metric["reason"] == "缺少固定支出数据，无法计算自由储蓄率"
+
+
+async def test_financial_overview_maps_chinese_categories(financial_session) -> None:
+    now = datetime.now()
+    financial_session.add_all(
+        [
+            User(id=4, email="four@example.com", password_hash="hash"),
+            Ledger(id=4, user_id=4, name="Four"),
+            Transaction(
+                user_id=4,
+                ledger_id=4,
+                type="expense",
+                category="早餐",
+                amount=Decimal("30.00"),
+                occurred_at=now - timedelta(days=1),
+            ),
+            Transaction(
+                user_id=4,
+                ledger_id=4,
+                type="expense",
+                category="午餐",
+                amount=Decimal("50.00"),
+                occurred_at=now - timedelta(days=1),
+            ),
+            Transaction(
+                user_id=4,
+                ledger_id=4,
+                type="expense",
+                category="超市采购",
+                amount=Decimal("20.00"),
+                occurred_at=now - timedelta(days=1),
+            ),
+            Transaction(
+                user_id=4,
+                ledger_id=4,
+                type="expense",
+                category="水电燃气",
+                amount=Decimal("100.00"),
+                occurred_at=now - timedelta(days=1),
+            ),
+            Transaction(
+                user_id=4,
+                ledger_id=4,
+                type="expense",
+                category="物业费",
+                amount=Decimal("200.00"),
+                occurred_at=now - timedelta(days=1),
+            ),
+            Transaction(
+                user_id=4,
+                ledger_id=4,
+                type="expense",
+                category="话费",
+                amount=Decimal("50.00"),
+                occurred_at=now - timedelta(days=1),
+            ),
+        ]
+    )
+    await financial_session.commit()
+
+    result = await get_user_financial_overview(financial_session, user_id=4, months=3)
+
+    assert result["raw"]["expenses"]["food"] == Decimal("100.00")
+    assert result["raw"]["expenses"]["fixed"] == Decimal("350.00")
+    assert result["raw"]["expenses"]["total"] == Decimal("450.00")
+
+
+async def test_financial_overview_includes_first_day_of_period(financial_session) -> None:
+    boundary = (datetime.now() - timedelta(days=90)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    financial_session.add_all(
+        [
+            User(id=5, email="five@example.com", password_hash="hash"),
+            Ledger(id=5, user_id=5, name="Five"),
+            Transaction(
+                user_id=5,
+                ledger_id=5,
+                type="expense",
+                category="交通",
+                amount=Decimal("49.00"),
+                occurred_at=boundary,
+            ),
+        ]
+    )
+    await financial_session.commit()
+
+    result = await get_user_financial_overview(financial_session, user_id=5, months=3)
+
+    assert result["period"]["start"] == boundary.date().isoformat()
+    assert result["raw"]["expenses"]["total"] == Decimal("49.00")

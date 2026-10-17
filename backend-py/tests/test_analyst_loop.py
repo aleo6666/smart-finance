@@ -154,6 +154,17 @@ def test_fabricated_number_discards_that_sentence() -> None:
     assert "储蓄率健康" in validated
 
 
+def test_mixed_sentence_keeps_grounded_clause() -> None:
+    refs = [{"source": "query_transactions", "total_amount": "4350.00"}]
+    analysis = "本月支出 4350.00 元，比上月下降 10%，整体控制得不错。"
+
+    validated = validate_analysis_against_refs(analysis, refs)
+
+    assert "4350.00" in validated
+    assert "10%" not in validated
+    assert "整体控制得不错" in validated
+
+
 def test_validate_analysis_falls_back_when_everything_is_fabricated() -> None:
     result = validate_analysis_against_refs(
         "你的净资产为 999999.00 元。", [{"source": "x", "savings_rate": "20.00%"}]

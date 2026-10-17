@@ -26,16 +26,17 @@ class GenerateReportRequest(BaseModel):
 @router.post("/generate")
 async def generate_report(
     payload: GenerateReportRequest,
+    user_id: int = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     return await generate_monthly_report(
-        db, payload.user_id, payload.year, payload.month
+        db, user_id, payload.year, payload.month
     )
 
 
 @router.get("")
 async def report_history(
-    user_id: int = Query(gt=0),
+    user_id: int = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[dict]:
     return await list_reports(db, user_id)
@@ -347,7 +348,7 @@ async def legacy_report_history(
 @router.get("/{report_id}")
 async def report_detail(
     report_id: int,
-    user_id: int = Query(gt=0),
+    user_id: int = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     report = await get_report(db, report_id, user_id)

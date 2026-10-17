@@ -1,9 +1,10 @@
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import get_current_user
 from app.api.serialization import decimal_strings
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
@@ -45,10 +46,11 @@ class AnomalyAnalysisRequest(UserAnalysisRequest):
 @router.post("/budget")
 async def budget_analysis(
     payload: BudgetAnalysisRequest,
+    user_id: int = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     result = await get_budget_analysis(
-        db, payload.user_id, payload.month, payload.ledger_id
+        db, user_id, payload.month, payload.ledger_id
     )
     return decimal_strings(result)
 
@@ -56,21 +58,23 @@ async def budget_analysis(
 @router.post("/forecast")
 async def cashflow_forecast(
     payload: UserAnalysisRequest,
+    user_id: int = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    return decimal_strings(await get_cashflow_forecast(db, payload.user_id))
+    return decimal_strings(await get_cashflow_forecast(db, user_id))
 
 
 @router.post("/anomalies")
 async def anomaly_analysis(
     payload: AnomalyAnalysisRequest,
+    user_id: int = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> dict:
     return decimal_strings(
         await get_anomaly_analysis(
             db,
-            payload.user_id,
+            user_id,
             payload.days,
             settings.anomaly_standard_deviations,
         )
@@ -80,22 +84,24 @@ async def anomaly_analysis(
 @router.post("/goals")
 async def goal_analysis(
     payload: UserAnalysisRequest,
+    user_id: int = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    return decimal_strings(await get_goal_analysis(db, payload.user_id))
+    return decimal_strings(await get_goal_analysis(db, user_id))
 
 
 @router.post("/benchmark")
 async def benchmark_analysis(
     payload: UserAnalysisRequest,
+    user_id: int = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    return decimal_strings(await get_benchmark_comparison(db, payload.user_id))
+    return decimal_strings(await get_benchmark_comparison(db, user_id))
 
 
 @router.get("/all")
 async def all_analyses(
-    user_id: int = Query(gt=0),
+    user_id: int = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> dict:

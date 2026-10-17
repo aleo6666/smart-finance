@@ -2,13 +2,14 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from qdrant_client import AsyncQdrantClient
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.datastructures import UploadFile
 
 from app.agents.tools.search_similar_records import Embedder
+from app.api.deps import get_current_user
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
 from app.core.llm import embed_text
@@ -25,7 +26,6 @@ router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
 
 class IngestTextRequest(BaseModel):
-    user_id: int = Field(gt=0)
     space_id: int | None = Field(default=None, gt=0)
     title: str = Field(default="语音转写", min_length=1, max_length=255)
     text: str = Field(min_length=1)
@@ -47,6 +47,7 @@ def get_knowledge_embedder() -> Embedder:
 @router.post("/ingest-text")
 async def ingest_text(
     payload: IngestTextRequest,
+    user_id: int = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     qdrant: AsyncQdrantClient = Depends(get_qdrant_client),
     settings: Settings = Depends(get_settings),
@@ -57,8 +58,8 @@ async def ingest_text(
             db,
             qdrant,
             settings,
-            user_id=payload.user_id,
-            space_id=payload.space_id or payload.user_id,
+            user_id=user_id,
+            space_id=payload.space_id or user_id,
             title=payload.title.strip(),
             source_type="audio_transcript",
             file_path=None,
@@ -84,7 +85,7 @@ def _integer_field(
         parsed = int(value)
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=f"invalid {name}") from exc
-    if parsed < 0 or (name == "user_id" and parsed == 0):
+    if parsed < 1:
         raise HTTPException(status_code=422, detail=f"invalid {name}")
     return parsed
 
@@ -92,6 +93,7 @@ def _integer_field(
 @router.post("/upload")
 async def upload_knowledge(
     request: Request,
+    user_id: int = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     qdrant: AsyncQdrantClient = Depends(get_qdrant_client),
     settings: Settings = Depends(get_settings),
@@ -101,7 +103,6 @@ async def upload_knowledge(
         payload = await request.json()
         if not isinstance(payload, dict):
             raise HTTPException(status_code=422, detail="invalid upload payload")
-        user_id = _integer_field(payload.get("user_id"), "user_id")
         space_id = _integer_field(
             payload.get("space_id"), "space_id", default=user_id
         )
@@ -111,7 +112,6 @@ async def upload_knowledge(
         file_path = None
     else:
         form = await request.form()
-        user_id = _integer_field(form.get("user_id"), "user_id")
         space_id = _integer_field(form.get("space_id"), "space_id", default=user_id)
         uploaded = form.get("file")
         transcript_text = form.get("transcript_text")
@@ -152,7 +152,7 @@ async def upload_knowledge(
 
 @router.get("/documents")
 async def knowledge_documents(
-    user_id: int = Query(gt=0),
+    user_id: int = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[dict[str, object]]:
     return await list_knowledge_documents(db, user_id)
@@ -161,16 +161,18 @@ async def knowledge_documents(
 @router.delete("/documents/{document_id}")
 async def delete_document(
     document_id: int,
+    user_id: int = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     qdrant: AsyncQdrantClient = Depends(get_qdrant_client),
 ) -> dict[str, object]:
-    if not await delete_knowledge_document(db, qdrant, document_id):
+    if not await delete_knowledge_document(db, qdrant, document_id, user_id):
         raise HTTPException(status_code=404, detail="knowledge document not found")
     return {"document_id": document_id, "status": "deleted"}
 
 
 @router.post("/seed-public")
 async def seed_public(
+    user_id: int = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     qdrant: AsyncQdrantClient = Depends(get_qdrant_client),
     settings: Settings = Depends(get_settings),

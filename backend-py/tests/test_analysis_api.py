@@ -6,6 +6,7 @@ import pytest_asyncio
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from app.api.deps import create_access_token
 from app.core.database import get_db
 from app.main import create_app
 from app.models import Base, Budget, Goal, Ledger, Transaction, User, UserProfile
@@ -102,11 +103,16 @@ async def analysis_api_client():
     await engine.dispose()
 
 
+def auth_headers(user_id: int = 1) -> dict[str, str]:
+    return {"Authorization": f"Bearer {create_access_token(user_id)}"}
+
+
 def test_budget_analysis_endpoint_returns_decimal_strings(analysis_api_client) -> None:
     month = date.today().strftime("%Y-%m")
     response = analysis_api_client.post(
         "/api/analysis/budget",
         json={"user_id": 1, "ledger_id": 1, "month": month},
+        headers=auth_headers(),
     )
 
     assert response.status_code == 200
@@ -119,7 +125,7 @@ def test_analysis_post_endpoints_smoke(analysis_api_client) -> None:
     paths = ("forecast", "anomalies", "goals", "benchmark")
     for path in paths:
         response = analysis_api_client.post(
-            f"/api/analysis/{path}", json={"user_id": 1}
+            f"/api/analysis/{path}", json={"user_id": 1}, headers=auth_headers()
         )
         assert response.status_code == 200, (path, response.text)
         assert response.json()["reason"] is None, path
@@ -128,7 +134,7 @@ def test_analysis_post_endpoints_smoke(analysis_api_client) -> None:
 def test_analysis_all_returns_five_analyses_and_isolates_user(
     analysis_api_client,
 ) -> None:
-    response = analysis_api_client.get("/api/analysis/all?user_id=1")
+    response = analysis_api_client.get("/api/analysis/all?user_id=1", headers=auth_headers())
 
     assert response.status_code == 200
     assert set(response.json()) == {
@@ -140,8 +146,27 @@ def test_analysis_all_returns_five_analyses_and_isolates_user(
     }
 
     isolated = analysis_api_client.post(
-        "/api/analysis/anomalies", json={"user_id": 2, "days": 30}
+        "/api/analysis/anomalies",
+        json={"user_id": 2, "days": 30},
+        headers=auth_headers(2),
     )
     assert isolated.status_code == 200
     anomalies = isolated.json()["anomalies"] or []
     assert all(item.get("transaction_id") not in {1, 2, 3} for item in anomalies)
+
+
+def test_analysis_endpoints_require_login(analysis_api_client) -> None:
+    assert analysis_api_client.post("/api/analysis/forecast", json={"user_id": 1}).status_code == 401
+    assert analysis_api_client.get("/api/analysis/all?user_id=1").status_code == 401
+
+
+def test_analysis_ignores_foreign_user_id_in_body(analysis_api_client) -> None:
+    month = date.today().strftime("%Y-%m")
+    response = analysis_api_client.post(
+        "/api/analysis/budget",
+        json={"user_id": 2, "ledger_id": 1, "month": month},
+        headers=auth_headers(1),
+    )
+    assert response.status_code == 200
+    # user 1's budget has food; user 2 has no budget at all
+    assert response.json()["overspent_categories"][0]["category"] == "food"

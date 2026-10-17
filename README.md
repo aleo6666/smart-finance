@@ -54,7 +54,7 @@
 | 前端 | Vue 3 / Vite |
 | 模型 | DeepSeek V4（对话/分析/审计）|
 | 部署 | Docker Compose / Nginx / 阿里云 ECS |
-| 测试 | pytest 329 用例（46 文件） |
+| 测试 | pytest 349 用例（51 文件） |
 
 ---
 

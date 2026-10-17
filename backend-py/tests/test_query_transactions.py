@@ -120,6 +120,15 @@ async def test_filters_transactions_by_category(transaction_tool) -> None:
 
 
 @pytest.mark.asyncio
+async def test_filters_transactions_by_group_alias(transaction_tool) -> None:
+    # 用户说「餐饮」时，应匹配 food / 早餐 / 午餐 等同组分类
+    result = await invoke_tool(transaction_tool, category="餐饮")
+
+    assert result["count"] == 2
+    assert {transaction["id"] for transaction in result["transactions"]} == {1, 3}
+
+
+@pytest.mark.asyncio
 async def test_filters_transactions_by_type(transaction_tool) -> None:
     result = await invoke_tool(transaction_tool, txn_type="income")
 
@@ -128,29 +137,70 @@ async def test_filters_transactions_by_type(transaction_tool) -> None:
 
 
 @pytest.mark.asyncio
+async def test_returns_dataset_refs_for_transaction_rows(transaction_tool) -> None:
+    result = await invoke_tool(transaction_tool, limit=1)
+
+    assert result["count"] == 1
+    assert len(result["dataset_refs"]) == 1
+    ref = result["dataset_refs"][0]
+    assert ref["source"] == "query_transactions"
+    assert ref["record_id"] == 3
+    assert ref["amount"] == "20.00"
+    assert ref["category"] == "food"
+
+
+@pytest.mark.asyncio
 async def test_groups_transactions_by_category(transaction_tool) -> None:
     result = await invoke_tool(transaction_tool, group_by="category")
 
-    assert result == {
-        "count": 2,
-        "groups": [
-            {"category": "food", "count": 2, "total_amount": "30.50"},
-            {"category": "salary", "count": 1, "total_amount": "1000.00"},
-        ],
-    }
+    assert result["count"] == 2
+    assert result["groups"] == [
+        {"category": "food", "count": 2, "total_amount": "30.50"},
+        {"category": "salary", "count": 1, "total_amount": "1000.00"},
+    ]
+    assert result["dataset_refs"] == [
+        {
+            "source": "query_transactions",
+            "group_by": "category",
+            "category": "food",
+            "count": 2,
+            "total_amount": "30.50",
+        },
+        {
+            "source": "query_transactions",
+            "group_by": "category",
+            "category": "salary",
+            "count": 1,
+            "total_amount": "1000.00",
+        },
+    ]
 
 
 @pytest.mark.asyncio
 async def test_groups_transactions_by_month(transaction_tool) -> None:
     result = await invoke_tool(transaction_tool, group_by="month")
 
-    assert result == {
-        "count": 2,
-        "groups": [
-            {"month": "2026-01", "count": 2, "total_amount": "1010.50"},
-            {"month": "2026-02", "count": 1, "total_amount": "20.00"},
-        ],
-    }
+    assert result["count"] == 2
+    assert result["groups"] == [
+        {"month": "2026-01", "count": 2, "total_amount": "1010.50"},
+        {"month": "2026-02", "count": 1, "total_amount": "20.00"},
+    ]
+    assert result["dataset_refs"] == [
+        {
+            "source": "query_transactions",
+            "group_by": "month",
+            "month": "2026-01",
+            "count": 2,
+            "total_amount": "1010.50",
+        },
+        {
+            "source": "query_transactions",
+            "group_by": "month",
+            "month": "2026-02",
+            "count": 1,
+            "total_amount": "20.00",
+        },
+    ]
 
 
 @pytest.mark.asyncio

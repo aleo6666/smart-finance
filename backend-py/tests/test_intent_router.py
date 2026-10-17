@@ -69,6 +69,17 @@ def test_rule_route_query_and_chat() -> None:
     assert rule_route("帮我看看") is None
 
 
+def test_rule_route_date_queries_are_not_records() -> None:
+    # 年份/月份不是金额：带日期的聚合问题应走 query，而不是记账
+    assert rule_route("2026年8月餐饮支出是多少？") == "query"
+    assert rule_route("分析2026年8月总支出") == "query"
+    assert rule_route("8月总支出是多少") == "query"
+    assert rule_route("2026-08 支出是多少") == "query"
+    # 但真的记账语句（日期 + 金额 + 动词）仍然要识别为 record
+    assert rule_route("2026年8月午餐花了25元") == "record"
+    assert rule_route("8月15日交房租5000") == "record"
+
+
 # ---------------- 混合入口（规则优先，LLM 兜底） ----------------
 
 @pytest.mark.asyncio

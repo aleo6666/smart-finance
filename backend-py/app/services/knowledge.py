@@ -193,9 +193,11 @@ async def delete_knowledge_document(
     db: AsyncSession,
     client: AsyncQdrantClient,
     document_id: int,
+    user_id: int,
 ) -> bool:
     document = await db.get(KnowledgeDocument, document_id)
-    if document is None:
+    if document is None or document.user_id != user_id:
+        # 文档不存在与“不属于当前用户”统一返回 False，避免暴露他人文档 ID
         return False
     await client.delete(
         collection_name=COLLECTION_NAME,

@@ -26,6 +26,7 @@ from app.agents.nodes.confirm_policy import confirm_required, is_first_category
 from app.agents.nodes.intent_router import (
     CLARIFY_MESSAGE,
     route_intent_hybrid,
+    strip_date_expressions,
 )
 from app.agents.nodes.memory_node import create_memory_node
 from app.agents.nodes.record_draft import create_record_draft_node
@@ -95,7 +96,7 @@ _RECORD_AMOUNT_RE = re.compile(r"\d+(?:\.\d+)?\s*(?:元|块|钱|rmb)?")
 
 def _looks_like_record(text: str) -> bool:
     """记账语句特征：含金额（可无单位）+ 消费/收入动词。第一性约束：没金额不记账。"""
-    has_money = bool(_RECORD_AMOUNT_RE.search(text))
+    has_money = bool(_RECORD_AMOUNT_RE.search(strip_date_expressions(text)))
     if not has_money:
         return False
     return any(verb in text for verb in _RECORD_VERBS)

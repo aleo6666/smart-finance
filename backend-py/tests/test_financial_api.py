@@ -5,6 +5,7 @@ import pytest_asyncio
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from app.api.deps import create_access_token
 from app.core.database import get_db
 from app.main import create_app
 from app.models import Asset, Base, Ledger, Liability, Transaction, User
@@ -71,8 +72,14 @@ async def financial_api_client():
     await engine.dispose()
 
 
+def auth_headers(user_id: int = 1) -> dict[str, str]:
+    return {"Authorization": f"Bearer {create_access_token(user_id)}"}
+
+
 def test_financial_metrics_api_returns_decimal_strings(financial_api_client) -> None:
-    response = financial_api_client.get("/api/financial/metrics?user_id=1")
+    response = financial_api_client.get(
+        "/api/financial/metrics?user_id=1", headers=auth_headers()
+    )
 
     assert response.status_code == 200
     payload = response.json()
@@ -89,7 +96,9 @@ def test_financial_metrics_api_returns_decimal_strings(financial_api_client) -> 
 def test_financial_overview_api_returns_metrics_and_raw_data(
     financial_api_client,
 ) -> None:
-    response = financial_api_client.get("/api/financial/overview?user_id=1")
+    response = financial_api_client.get(
+        "/api/financial/overview?user_id=1", headers=auth_headers()
+    )
 
     assert response.status_code == 200
     payload = response.json()
@@ -98,3 +107,17 @@ def test_financial_overview_api_returns_metrics_and_raw_data(
     assert payload["raw"]["expenses"]["total"] == "500.00"
     assert payload["raw"]["assets"]["total"] == "2000.00"
     assert payload["raw"]["liabilities"]["total"] == "500.00"
+
+
+def test_financial_endpoints_require_login(financial_api_client) -> None:
+    assert financial_api_client.get("/api/financial/metrics?user_id=1").status_code == 401
+    assert financial_api_client.get("/api/financial/overview?user_id=1").status_code == 401
+
+
+def test_financial_endpoints_ignore_foreign_user_id_query(financial_api_client) -> None:
+    response = financial_api_client.get(
+        "/api/financial/overview?user_id=2", headers=auth_headers(1)
+    )
+
+    assert response.status_code == 200
+    assert response.json()["user_id"] == 1

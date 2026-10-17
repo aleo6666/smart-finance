@@ -39,10 +39,26 @@ RECORD_VERBS = (
 )
 AMOUNT_RE = re.compile(r"\d+(?:\.\d+)?\s*(?:元|块|钱|rmb)?")
 
+# 日期表达式：2026年8月 / 2026年8月15日 / 2026-08 / 2026-08-15 / 8月 / 8月15日
+# 先剔除日期再找金额，否则「2026年8月支出是多少」里的 2026 会被当成金额。
+_DATE_EXPR_RE = re.compile(
+    r"(?:(?:19|20)\d{2}\s*年\s*)?\d{1,2}\s*月(?:\s*\d{1,2}\s*[日号])?"
+    r"|(?:19|20)\d{2}\s*年"
+    r"|(?:19|20)\d{2}[-/.]\d{1,2}(?:[-/.]\d{1,2})?"
+)
+
+
+def strip_date_expressions(text: str) -> str:
+    """移除日期/年月表达，避免年份被误识别为金额。"""
+    return _DATE_EXPR_RE.sub(" ", str(text))
+
 # 高置信查询动词（含"多少/几条/记录/账单/花了多少"类，100% 确定才进此表）
 QUERY_KEYWORDS = (
     "花了多少", "用了多少", "记录", "账单", "明细", "查询", "查一下",
     "预算", "目标", "结余", "余额", "本月", "上月", "这个月", "上个月",
+    # 带日期的聚合问题：「2026年8月餐饮支出是多少」「分析8月总支出」
+    "支出是多少", "花费是多少", "收入是多少", "支出多少", "收入多少",
+    "总支出", "总支出是多少", "总收入", "多少钱", "一共多少", "合计多少",
 )
 
 # 高置信闲聊词（100% 确定）
@@ -66,7 +82,9 @@ def rule_route(text: str) -> str | None:
         return "analysis"
 
     # 2. 记账：金额 + 动词（第一性约束：没金额不记账）
-    if AMOUNT_RE.search(normalized) and any(v in normalized for v in RECORD_VERBS):
+    # 先剔除日期，避免「2026年8月支出」把年份当金额。
+    amount_text = strip_date_expressions(normalized)
+    if AMOUNT_RE.search(amount_text) and any(v in normalized for v in RECORD_VERBS):
         return "record"
 
     # 3. 高置信查询

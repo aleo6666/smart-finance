@@ -7,6 +7,7 @@ from sqlalchemy import extract, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.models import Transaction
+from app.services.category_groups import expand_category
 
 
 EMPTY_RESULT = {"count": 0, "message": "该条件下无交易记录"}
@@ -28,7 +29,7 @@ def _filters(
         end = datetime.combine(date.fromisoformat(end_date) + timedelta(days=1), time.min)
         filters.append(Transaction.occurred_at < end)
     if category is not None:
-        filters.append(Transaction.category == category)
+        filters.append(Transaction.category.in_(expand_category(category)))
     if txn_type is not None:
         filters.append(Transaction.type == txn_type)
     return filters
@@ -68,6 +69,16 @@ async def _query_rows(
             }
             for transaction in transactions
         ],
+        "dataset_refs": [
+            {
+                "source": "query_transactions",
+                "record_id": transaction.id,
+                "amount": _format_amount(transaction.amount),
+                "category": transaction.category,
+                "occurred_at": transaction.occurred_at.isoformat(),
+            }
+            for transaction in transactions
+        ],
     }
 
 
@@ -93,6 +104,16 @@ async def _query_by_category(
         "count": len(rows),
         "groups": [
             {
+                "category": row.category,
+                "count": row.count,
+                "total_amount": _format_amount(row.total_amount),
+            }
+            for row in rows
+        ],
+        "dataset_refs": [
+            {
+                "source": "query_transactions",
+                "group_by": "category",
                 "category": row.category,
                 "count": row.count,
                 "total_amount": _format_amount(row.total_amount),
@@ -127,6 +148,16 @@ async def _query_by_month(
         "count": len(rows),
         "groups": [
             {
+                "month": f"{int(row.year):04d}-{int(row.month):02d}",
+                "count": row.count,
+                "total_amount": _format_amount(row.total_amount),
+            }
+            for row in rows
+        ],
+        "dataset_refs": [
+            {
+                "source": "query_transactions",
+                "group_by": "month",
                 "month": f"{int(row.year):04d}-{int(row.month):02d}",
                 "count": row.count,
                 "total_amount": _format_amount(row.total_amount),

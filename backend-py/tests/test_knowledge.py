@@ -12,11 +12,16 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from app.api.deps import create_access_token
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
 from app.main import create_app
 from app.models import Base, KnowledgeDocument
 from app.services.knowledge import chunk_point_id
+
+
+def auth_headers(user_id: int = 7) -> dict[str, str]:
+    return {"Authorization": f"Bearer {create_access_token(user_id)}"}
 
 
 def make_settings() -> Settings:
@@ -284,7 +289,8 @@ def test_txt_upload_route_persists_lists_and_indexes_document(knowledge_store) -
     with TestClient(application) as api:
         uploaded = api.post(
             "/api/knowledge/upload",
-            data={"user_id": "7", "title": "应急资金指南"},
+            data={"user_id": "8", "title": "应急资金指南"},
+            headers=auth_headers(7),
             files={
                 "file": (
                     "emergency.md",
@@ -300,7 +306,7 @@ def test_txt_upload_route_persists_lists_and_indexes_document(knowledge_store) -
             "status": "indexed",
         }
 
-        documents = api.get("/api/knowledge/documents?user_id=7")
+        documents = api.get("/api/knowledge/documents", headers=auth_headers(7))
         assert documents.status_code == 200
         assert documents.json()[0] == {
             "id": 1,
@@ -313,7 +319,10 @@ def test_txt_upload_route_persists_lists_and_indexes_document(knowledge_store) -
             "created_at": documents.json()[0]["created_at"],
         }
 
-        assert api.get("/api/knowledge/documents?user_id=8").json() == []
+        # 查询参数里的 user_id 不再有效，token 8 看不到 token 7 的文档
+        assert api.get(
+            "/api/knowledge/documents?user_id=7", headers=auth_headers(8)
+        ).json() == []
 
     point = client.points[chunk_point_id(1, 0)]
     assert point.payload["user_id"] == 7
@@ -360,15 +369,18 @@ def test_transcript_json_upload_is_indexed_as_audio_transcript(
     with TestClient(application) as api:
         uploaded = api.post(
             "/api/knowledge/upload",
+            headers=auth_headers(7),
             json={
-                "user_id": 7,
+                "user_id": 8,
                 "title": "语音转写",
                 "transcript_text": "本月应先补足应急备用金。",
             },
         )
         assert uploaded.status_code == 200
 
-        document = api.get("/api/knowledge/documents?user_id=7").json()[0]
+        document = api.get(
+            "/api/knowledge/documents", headers=auth_headers(7)
+        ).json()[0]
         assert document["source_type"] == "audio_transcript"
         assert document["file_path"] is None
 
@@ -400,17 +412,20 @@ def test_ingest_text_memo_and_knowledge_return_document_ids(
     with TestClient(application) as api:
         memo = api.post(
             "/api/knowledge/ingest-text",
-            json={"user_id": 7, "text": memo_text, "mark": "memo"},
+            headers=auth_headers(7),
+            json={"user_id": 8, "text": memo_text, "mark": "memo"},
         )
         knowledge = api.post(
             "/api/knowledge/ingest-text",
-            json={"user_id": 7, "text": knowledge_text, "mark": "knowledge"},
+            headers=auth_headers(7),
+            json={"user_id": 8, "text": knowledge_text, "mark": "knowledge"},
         )
 
     assert memo.status_code == 200
     assert knowledge.status_code == 200
     assert memo.json() == {"document_id": 1}
     assert knowledge.json() == {"document_id": 2}
+    assert client.points[chunk_point_id(1, 0)].payload["user_id"] == 7
     assert client.points[chunk_point_id(1, 0)].payload["content"] == memo_text
     assert chunk_point_id(1, 1) not in client.points
     assert client.points[chunk_point_id(1, 0)].payload["mark"] == "memo"
@@ -443,16 +458,30 @@ def test_delete_route_removes_document_with_qdrant_document_filter(
             api.post(
                 "/api/knowledge/upload",
                 data={"user_id": "7"},
+                headers=auth_headers(7),
                 files={"file": ("notes.txt", "需要删除的内容", "text/plain")},
             ).status_code
             == 200
         )
 
-        deleted = api.delete("/api/knowledge/documents/1")
+        # 别人的文档不能删，统一 404，不暴露存在性
+        forbidden = api.delete(
+            "/api/knowledge/documents/1", headers=auth_headers(8)
+        )
+        assert forbidden.status_code == 404
+        assert api.get(
+            "/api/knowledge/documents", headers=auth_headers(7)
+        ).json()[0]["id"] == 1
+
+        deleted = api.delete(
+            "/api/knowledge/documents/1", headers=auth_headers(7)
+        )
 
         assert deleted.status_code == 200
         assert deleted.json() == {"document_id": 1, "status": "deleted"}
-        assert api.get("/api/knowledge/documents?user_id=7").json() == []
+        assert api.get(
+            "/api/knowledge/documents", headers=auth_headers(7)
+        ).json() == []
 
     call = client.deletes[0]
     assert call["collection_name"] == "knowledge_chunks_v1"
@@ -491,9 +520,11 @@ def test_seed_public_route_is_idempotent_and_searchable_by_any_user(
 
     seed_count = len(PUBLIC_KNOWLEDGE_DOCUMENTS)
     with TestClient(application) as api:
-        first = api.post("/api/knowledge/seed-public")
-        second = api.post("/api/knowledge/seed-public")
-        documents = api.get("/api/knowledge/documents?user_id=88").json()
+        first = api.post("/api/knowledge/seed-public", headers=auth_headers(88))
+        second = api.post("/api/knowledge/seed-public", headers=auth_headers(88))
+        documents = api.get(
+            "/api/knowledge/documents", headers=auth_headers(88)
+        ).json()
 
     assert first.status_code == 200
     assert first.json() == {"created": seed_count, "skipped": 0, "total": seed_count}
@@ -515,3 +546,37 @@ def test_seed_public_route_is_idempotent_and_searchable_by_any_user(
     assert [condition.match.value for condition in query_filter.should] == [88, 0]
     assert result["results"]
     assert all(item["user_id"] == 0 for item in result["results"])
+
+
+def test_knowledge_routes_reject_anonymous(knowledge_store) -> None:
+    from app.api.knowledge import get_knowledge_embedder, get_qdrant_client
+
+    application = create_app(chat_agent=object())
+
+    async def override_get_db():
+        async with knowledge_store() as session:
+            yield session
+
+    async def override_qdrant():
+        yield FakeQdrantClient()
+
+    application.dependency_overrides[get_db] = override_get_db
+    application.dependency_overrides[get_settings] = make_settings
+    application.dependency_overrides[get_qdrant_client] = override_qdrant
+    application.dependency_overrides[get_knowledge_embedder] = lambda: fake_embedder
+
+    with TestClient(application) as api:
+        assert api.get("/api/knowledge/documents?user_id=7").status_code == 401
+        assert api.delete("/api/knowledge/documents/1").status_code == 401
+        assert api.post("/api/knowledge/seed-public").status_code == 401
+        assert api.post(
+            "/api/knowledge/ingest-text",
+            json={"text": "无 token", "mark": "memo"},
+        ).status_code == 401
+        # 不能用 space_id=0 把私人文档塞进公共空间
+        assert api.post(
+            "/api/knowledge/upload",
+            headers=auth_headers(7),
+            data={"space_id": "0"},
+            files={"file": ("notes.txt", "不想公开", "text/plain")},
+        ).status_code == 422

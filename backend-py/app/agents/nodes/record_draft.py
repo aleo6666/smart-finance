@@ -18,29 +18,27 @@ from decimal import Decimal
 from typing import Any
 
 from langchain_core.messages import AIMessage
-from langchain_core.prompts import ChatPromptTemplate
 
+from app.agents.nodes.intent_router import strip_date_expressions
 from app.core.llm import parse_json_object
 
 logger = logging.getLogger(__name__)
 
-RECORD_DRAFT_PROMPT = ChatPromptTemplate.from_messages(
-    [
-        (
-            "system",
-            "你是记账解析器。把用户的记账语句解析为一条结构化记录，只返回 JSON，不要 Markdown，不要多余文字。\n"
-            "JSON 格式：\n"
-            '{"type": "expense" 或 "income", "category": "类别", "amount": 数字, "note": "备注", "occurred_at": "YYYY-MM-DD 或空"}\n'
-            "规则：\n"
-            "- type：支出默认 expense；收入（工资/奖金/红包/退款/兼职/收钱）为 income\n"
-            "- category 从用户语义推断：餐饮/交通/日用品/娱乐/医疗/居住/购物/教育/转账/其他\n"
-            "- amount 必须是正数数字，不要带货币符号\n"
-            "- note 简短概括（如 午餐、房租、地铁）\n"
-            "- occurred_at：用户给了日期才填（今天→今天日期），否则空字符串\n"
-            "- 金额信息缺失或无法解析时返回 type=expense, category=其他, amount=0, note=空（amount=0 表示解析失败）\n",
-        ),
-        ("human", "{text}"),
-    ]
+RECORD_LLM_SYSTEM = (
+    "你是记账解析器。把用户的记账语句解析为一条结构化记录，只返回 JSON，不要 Markdown，不要多余文字。\n"
+    "JSON 格式：\n"
+    '{"type": "expense" 或 "income", "category": "类别", "amount": 数字, "note": "备注", "occurred_at": "YYYY-MM-DD 或空"}\n'
+    "规则：\n"
+    "- type：支出默认 expense；收入（工资/奖金/红包/退款/兼职/收钱）为 income\n"
+    "- category 从用户语义推断：餐饮/交通/日用品/娱乐/医疗/居住/购物/教育/转账/其他\n"
+    "- amount 必须是正数数字，不要带货币符号\n"
+    "- 多人分摊：\n"
+    "  · 「人均 80，两个人」→ amount=160（人均 × 人数，总支出）\n"
+    "  · 「AA 制，我付了 240，三个人」→ amount=80（总付款 ÷ 人数，我的份额）\n"
+    "  · 「一共/总共 240，三个人」→ amount=240（总支出，不除）\n"
+    "- note 简短概括（如 午餐、房租、地铁）\n"
+    "- occurred_at：用户给了日期才填（今天→今天日期），否则空字符串\n"
+    "- 金额信息缺失或无法解析时返回 type=expense, category=其他, amount=0, note=空（amount=0 表示解析失败）\n"
 )
 
 _AMOUNT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(?:元|块|块钱|rmb|钱)?", re.IGNORECASE)
@@ -49,8 +47,10 @@ _AMOUNT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(?:元|块|块钱|rmb|钱)?", re.IGN
 
 # 收入信号词（命中 → type=income）
 _INCOME_KEYWORDS = (
-    "工资", "奖金", "红包", "退款", "兼职", "收钱", "赚了", "报销",
+    "工资", "奖金", "红包", "退款", "兼职", "收钱", "赚了",
     "收到", "进账", "薪水", "入账", "到账",
+    # 「公司报销打车费」是支出（先垫付），只有「报销到账/收到报销」才是收入。
+    "报销到账", "收到报销",
 )
 
 # 类别词表（按优先级排序，命中即归类）
@@ -70,6 +70,24 @@ _CATEGORY_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
     ("转账", ("转账", "借出", "借给", "还钱", "还款", "礼金", "随礼", "红包给")),
 ]
 
+_CN_NUMERALS = {
+    "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
+    "六": 6, "七": 7, "八": 8, "九": 9, "十": 10,
+}
+_HEADCOUNT_RE = re.compile(r"(\d+|[一二两三四五六七八九十])\s*(?:个)?\s*人")
+
+
+def _parse_headcount(text: str) -> int | None:
+    """Parse 「三个人 / 2人 / 两位」 里的用餐人数，解析不到返回 None。"""
+    match = _HEADCOUNT_RE.search(text)
+    if not match:
+        return None
+    raw = match.group(1)
+    if raw.isdigit():
+        return int(raw)
+    return _CN_NUMERALS.get(raw)
+
+
 # 记账动词（note 清理用）
 _NOTE_STRIP_VERBS = (
     "花了", "用了", "买了", "付了", "吃了", "喝了", "缴了", "充了", "转了",
@@ -88,12 +106,26 @@ def rule_extract_record(text: str) -> dict[str, Any] | None:
     if not normalized:
         return None
 
-    # 金额：只接受单个金额（多金额 = 多笔拆分场景，交给 LLM）
-    matches = list(_AMOUNT_RE.finditer(normalized))
+    # 金额：只接受单个金额（多金额 = 多笔拆分场景，交给 LLM）。
+    # 先剔除日期，避免「2026年8月午餐25元」把年份/月份当成金额。
+    amount_text = strip_date_expressions(normalized)
+    matches = list(_AMOUNT_RE.finditer(amount_text))
     amounts = [Decimal(m.group(1)) for m in matches if m.group(1)]
     if len(amounts) != 1 or amounts[0] <= 0:
         return None
     amount = amounts[0].quantize(Decimal("0.01"))
+    headcount = _parse_headcount(normalized)
+    is_per_person = "人均" in normalized or "每位" in normalized
+    is_aa = bool(re.search(r"(?:^|[^a-z])aa(?:$|[^a-z])", normalized, re.IGNORECASE))
+    if headcount and headcount > 1:
+        if is_per_person:
+            # 「人均 80，两个人」= 总支出 160
+            amount = (amount * headcount).quantize(Decimal("0.01"))
+        elif is_aa:
+            # 「AA，我付了 240，三个人」= 我的份额 80
+            amount = (amount / headcount).quantize(Decimal("0.01"))
+    if amount <= 0:
+        return None
 
     # 收入/支出
     is_income = any(kw in normalized for kw in _INCOME_KEYWORDS)
@@ -161,20 +193,7 @@ def create_record_draft_node(model: Any, tool_timeout: float = 30.0):
         # ② 降级 LLM 提取（多笔/歧义/新类别）
         logger.info("record_draft method=llm text=%s", text)
 
-        system = SystemMessage(
-            content=(
-                "你是记账解析器。把用户的记账语句解析为一条结构化记录，只返回 JSON，不要 Markdown，不要多余文字。\n"
-                "JSON 格式：\n"
-                '{"type": "expense" 或 "income", "category": "类别", "amount": 数字, "note": "备注", "occurred_at": "YYYY-MM-DD 或空"}\n'
-                "规则：\n"
-                "- type：支出默认 expense；收入（工资/奖金/红包/退款/兼职/收钱）为 income\n"
-                "- category 从用户语义推断：餐饮/交通/日用品/娱乐/医疗/居住/购物/教育/转账/其他\n"
-                "- amount 必须是正数数字，不要带货币符号\n"
-                "- note 简短概括（如 午餐、房租、地铁）\n"
-                "- occurred_at：用户给了日期才填（今天→今天日期），否则空字符串\n"
-                "- 金额信息缺失或无法解析时返回 type=expense, category=其他, amount=0, note=空（amount=0 表示解析失败）\n"
-            )
-        )
+        system = SystemMessage(content=RECORD_LLM_SYSTEM)
         try:
             response = await asyncio.wait_for(
                 model.ainvoke([system, HumanMessage(content=text)]),

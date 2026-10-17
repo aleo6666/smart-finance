@@ -225,7 +225,9 @@ def test_insurance_crud_and_overview(api_client) -> None:
             "company": "示例保险",
             "insured_amount": "2000000.00",
             "annual_premium": "400.00",
-            "end_date": "2026-09-01",
+            # 动态日期：接口按「今天起 60 天内到期」判定 expiring_soon，
+            # 写死日期会随时间过期（2026-09 时间炸弹），必须相对今天
+            "end_date": str(date.today() + timedelta(days=30)),
         },
         headers=headers,
     )

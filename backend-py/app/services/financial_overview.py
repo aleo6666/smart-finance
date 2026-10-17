@@ -5,24 +5,15 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Asset, Liability, Transaction
+from app.services.category_groups import (
+    is_fixed_expense_category,
+    is_food_category,
+)
 from app.services.metrics import compute_metrics
 
 
 ZERO = Decimal("0")
 LIQUID_ASSET_TYPES = {"cash", "bank_deposit"}
-FIXED_EXPENSE_CATEGORIES = {
-    "housing",
-    "rent",
-    "mortgage",
-    "utilities",
-    "insurance",
-    "住房",
-    "房租",
-    "房贷",
-    "水电",
-    "保险",
-}
-FOOD_CATEGORIES = {"food", "食品", "餐饮"}
 
 
 async def _transaction_totals(
@@ -52,9 +43,9 @@ async def _transaction_totals(
             total_income = (total_income or ZERO) + amount
         elif row.type == "expense":
             total_expenses = (total_expenses or ZERO) + amount
-            if row.category in FOOD_CATEGORIES:
+            if is_food_category(row.category):
                 food_expenses += amount
-            if row.category in FIXED_EXPENSE_CATEGORIES:
+            if is_fixed_expense_category(row.category):
                 categorized_fixed_expenses += amount
 
     return (
@@ -146,7 +137,11 @@ async def get_user_financial_overview(
         raise ValueError("months must be at least 1")
 
     period_end = datetime.now()
-    period_start = period_end - timedelta(days=30 * months)
+    # 周期起点对齐到当天 00:00，保证 period.start 展示的日期与实际统计边界一致，
+    # 避免同一天 00:00 的流水被精确时间截掉（线上曾出现 49 元差额）。
+    period_start = (period_end - timedelta(days=30 * months)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
     transaction_totals, categorized_fixed = await _transaction_totals(
         db, user_id, period_start
     )

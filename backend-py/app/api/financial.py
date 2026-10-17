@@ -1,8 +1,9 @@
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import get_current_user
 from app.api.serialization import decimal_strings
 from app.core.database import get_db
 from app.services.financial_overview import get_user_financial_overview
@@ -14,7 +15,7 @@ DECIMAL_RESPONSE_NOTE = "所有 Decimal 值均序列化为字符串，以保持�
 
 @router.get("/metrics", description=DECIMAL_RESPONSE_NOTE)
 async def financial_metrics(
-    user_id: int = Query(gt=0),
+    user_id: int = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     overview = await get_user_financial_overview(db, user_id)
@@ -29,7 +30,7 @@ async def financial_metrics(
 
 @router.get("/overview", description=DECIMAL_RESPONSE_NOTE)
 async def financial_overview(
-    user_id: int = Query(gt=0),
+    user_id: int = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     return decimal_strings(await get_user_financial_overview(db, user_id))

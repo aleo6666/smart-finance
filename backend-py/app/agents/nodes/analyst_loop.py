@@ -61,7 +61,9 @@ ANALYSIS_MAX_ITERATIONS_FALLBACK = "分析步骤过多，未能收敛，请缩�
 FALLBACK_ANALYSIS = "基于真实数据，本次分析未能形成有效结论，请补充数据或缩小问题范围"
 
 _NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
-_SENTENCE_SPLIT_RE = re.compile(r"[。！？!?；;\n]+")
+# 按句/分句切分：逗号也切，避免「真实数字 + 假设数字」混在一句时
+# 整句被误删（证据链应只删没有引用支撑的分句）。
+_CLAUSE_SPLIT_RE = re.compile(r"(?<=[。！？!?；;\n，,])")
 
 
 def extract_numbers(text: str) -> list[Decimal]:
@@ -108,26 +110,26 @@ def _analysis_has_ref_number(analysis: str, refs: list[dict]) -> bool:
 
 
 def validate_analysis_against_refs(analysis: str, dataset_refs: list[dict]) -> str:
-    """Drop any sentence whose numbers cannot be found in ``dataset_refs``.
+    """Drop any clause whose numbers cannot be found in ``dataset_refs``.
 
     Falls back to a deterministic template when nothing survives, so the model
     can never hand a fabricated number back to the user.
     """
     allowed = _ref_numbers(dataset_refs)
-    sentences = [
-        sentence.strip()
-        for sentence in _SENTENCE_SPLIT_RE.split(analysis)
-        if sentence.strip()
+    clauses = [
+        clause.strip()
+        for clause in _CLAUSE_SPLIT_RE.split(analysis)
+        if clause.strip()
     ]
     kept = [
-        sentence
-        for sentence in sentences
-        if all(number in allowed for number in extract_numbers(sentence))
+        clause
+        for clause in clauses
+        if all(number in allowed for number in extract_numbers(clause))
     ]
     if not kept:
         return FALLBACK_ANALYSIS
-    joined = "。".join(kept)
-    return joined if joined.endswith("。") else joined + "。"
+    joined = "".join(kept)
+    return joined if joined.endswith(("。", "！", "？", "!", "?")) else joined + "。"
 
 
 def _latest_user_text(messages: list[BaseMessage]) -> str:

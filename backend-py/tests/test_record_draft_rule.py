@@ -78,3 +78,29 @@ class TestRuleExtractRecord:
     def test_empty_text(self):
         assert rule_extract_record("") is None
         assert rule_extract_record("   ") is None
+
+    def test_per_person_total(self):
+        # 「人均 80，两个人」= 总支出 160（不是 80）
+        d = rule_extract_record("昨天和朋友吃饭人均80，两个人")
+        assert d is not None
+        assert d["amount"] == Decimal("160.00")
+        assert d["category"] == "餐饮"
+
+    def test_aa_split_my_share(self):
+        # 「AA，我付了 240，三个人」= 我的份额 80（不是 240）
+        d = rule_extract_record("AA 制，我付了 240，三个人")
+        assert d is not None
+        assert d["amount"] == Decimal("80.00")
+
+    def test_company_reimbursement_is_expense(self):
+        # 「公司报销打车费」是员工先垫付，type=expense，不是 income
+        d = rule_extract_record("公司报销打车费120")
+        assert d is not None
+        assert d["type"] == "expense"
+        assert d["category"] == "交通"
+        assert d["amount"] == Decimal("120.00")
+
+    def test_date_is_not_treated_as_amount(self):
+        d = rule_extract_record("2026年8月午餐25元")
+        assert d is not None
+        assert d["amount"] == Decimal("25.00")

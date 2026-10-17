@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from app.api.deps import create_access_token
 from app.core.database import get_db
 from app.main import create_app
 from app.models import Base, Ledger, Report, Transaction, User
@@ -131,6 +132,10 @@ async def test_report_history_and_detail_are_user_isolated(report_store) -> None
         assert await get_report(session, generated["id"], 2) is None
 
 
+def auth_headers(user_id: int = 1) -> dict[str, str]:
+    return {"Authorization": f"Bearer {create_access_token(user_id)}"}
+
+
 def test_report_api_generate_list_and_detail(report_store) -> None:
     _, sessions = report_store
     application = create_app(chat_agent=object())
@@ -144,17 +149,34 @@ def test_report_api_generate_list_and_detail(report_store) -> None:
         generated = client.post(
             "/api/reports/generate",
             json={"user_id": 1, "year": 2026, "month": 3},
+            headers=auth_headers(),
         )
         assert generated.status_code == 200
         report_id = generated.json()["id"]
 
-        history = client.get("/api/reports?user_id=1")
+        history = client.get("/api/reports?user_id=1", headers=auth_headers())
         assert history.status_code == 200
         assert [item["id"] for item in history.json()] == [report_id]
 
-        detail = client.get(f"/api/reports/{report_id}?user_id=1")
+        detail = client.get(f"/api/reports/{report_id}?user_id=1", headers=auth_headers())
         assert detail.status_code == 200
         assert detail.json()["period"] == "2026-03"
 
-        isolated = client.get(f"/api/reports/{report_id}?user_id=2")
+        isolated = client.get(f"/api/reports/{report_id}?user_id=2", headers=auth_headers(2))
         assert isolated.status_code == 404
+
+
+def test_report_endpoints_require_login(report_store) -> None:
+    _, sessions = report_store
+    application = create_app(chat_agent=object())
+
+    async def override_get_db():
+        async with sessions() as session:
+            yield session
+
+    application.dependency_overrides[get_db] = override_get_db
+    with TestClient(application) as client:
+        assert client.post(
+            "/api/reports/generate", json={"user_id": 1, "year": 2026, "month": 3}
+        ).status_code == 401
+        assert client.get("/api/reports?user_id=1").status_code == 401
