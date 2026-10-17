@@ -4,7 +4,7 @@
 [![Python](https://img.shields.io/badge/Python-3.11-3776AB)](https://www.python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688)](https://fastapi.tiangolo.com)
 [![LangGraph](https://img.shields.io/badge/LangGraph-1.x-blue)](https://github.com/langchain-ai/langgraph)
-[![测试](https://img.shields.io/badge/tests-329%2F329-brightgreen)](#)
+[![测试](https://img.shields.io/badge/tests-349%2F349-brightgreen)](#)
 [![许可证](https://img.shields.io/badge/license-Unlicensed-red)](#)
 
 基于 LangGraph 的 AI-Native 智能财务顾问——从自然语言记账到财务健康评估，从**受约束自主体 + 反思闭环 + 证据链**到四类跨会话记忆，从本地开发到 Docker 灰度部署的全链路实现。
@@ -34,7 +34,7 @@
 ### Agent 架构
 - LangGraph 状态机：Hybrid 意图路由 → 记账确定性工作流 / 分析 ReAct 循环 / 对话注入 CFP 真实数据
 - 长期记忆：规则 / 目标 / 偏好三类事实 + 向量化检索（Qdrant + MySQL），工具显式写入需确认
-- 受约束自主性：模型只拥有工具执行权与决策权，所有写操作经确认、所有数字经证据校验；工具调用经 Zod Schema 校验并强制注入服务端 user_id 隔离
+- 受约束自主性：模型只拥有工具执行权与决策权，所有写操作经确认、所有数字经证据校验；工具调用经 Pydantic Schema 校验，并由服务端 token 注入当前用户，模型无法伪造身份
 - 确定性领域计算：预算执行 / 环比 / 占比 / 评分等纯函数实现，LLM 不做算术
 
 ### 安全控制（Agentic Security）
@@ -77,7 +77,7 @@ curl http://localhost:8000/api/health/ready
 
 ```bash
 cd backend-py
-./.venv/Scripts/python.exe -m pytest tests/ -q        # 全量 329 用例（约 3 分钟）
+./.venv/Scripts/python.exe -m pytest tests/ -q        # 全量 349 用例（约 3.5 分钟）
 ./.venv/Scripts/python.exe -m pytest tests/test_analyst_loop.py tests/test_critic_integration.py -q   # 分析+自检专项
 ```
 
@@ -96,11 +96,11 @@ backend-py/app/
 │   │   ├── cfp_node.py         # 财务顾问上下文注入
 │   │   ├── memory_node.py      # 跨会话长期记忆
 │   │   └── confirm_policy.py   # 写操作确认策略
-│   └── tools/              # 记账/查询/分析/知识库/OCR 工具（Zod 校验+user_id 注入）
+│   └── tools/              # 记账/查询/分析/知识库/OCR 工具（Pydantic 校验 + token 用户上下文）
 ├── api/                    # FastAPI 路由（20+ 业务域）
 ├── core/                   # 配置 / LLM 客户端
 ├── models/                 # SQLAlchemy
-└── tests/                  # 329 用例
+└── tests/                  # 349 用例
 ```
 
 ---
