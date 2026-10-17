@@ -38,7 +38,8 @@
 - 确定性领域计算：预算执行 / 环比 / 占比 / 评分等纯函数实现，LLM 不做算术
 
 ### 安全控制（Agentic Security）
-- JWT 鉴权 + 工具级授权（每个工具强制注入 user_id，模型无法伪造）
+- JWT 鉴权 + 工具级授权（服务端 token 强制注入 user_id，模型无法伪造）
+- 2026-10-17 生产复核：10 个受保护 GET 无 token / 伪造 user_id 全部 401
 - 敏感写操作 human-in-the-loop（LangGraph interrupt 人工确认）
 - 幂等键 + 确定性写入执行器防重复提交
 
